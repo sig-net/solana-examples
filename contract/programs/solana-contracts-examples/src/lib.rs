@@ -142,4 +142,15 @@ pub mod solana_core_contracts {
             signature,
         )
     }
+
+    pub fn update_config(
+        ctx: Context<UpdateVaultConfig>,
+        mpc_root_public_key: [u8; 64],
+        chain_signatures_program_id: Pubkey,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.mpc_root_public_key = mpc_root_public_key;
+        config.chain_signatures_program_id = chain_signatures_program_id;
+        Ok(())
+    }
 }

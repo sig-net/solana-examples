@@ -145,6 +145,10 @@ async function ensureVaultConfigInitialized(
     program.programId,
   );
 
+  const desiredProgramId = new anchor.web3.PublicKey(
+    CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+  );
+
   const publicKeyHex = CONFIG.MPC_ROOT_PUBLIC_KEY.startsWith("04")
     ? CONFIG.MPC_ROOT_PUBLIC_KEY.slice(2)
     : CONFIG.MPC_ROOT_PUBLIC_KEY;
@@ -152,19 +156,52 @@ async function ensureVaultConfigInitialized(
 
   const accountInfo = await provider.connection.getAccountInfo(vaultConfigPda);
 
+  // 1) does not exist: initialize with env config
   if (!accountInfo) {
     await program.methods
-      .initializeConfig(
-        publicKeyBytes,
-        new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
-      )
+      .initializeConfig(publicKeyBytes, desiredProgramId)
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();
+
+    console.log(
+      "✅ vault_config initialized with:",
+      desiredProgramId.toBase58(),
+    );
+    return vaultConfigPda;
   }
+
+  // 2) Already exists: check and sync
+  const cfg = await program.account.vaultConfig.fetch(vaultConfigPda);
+
+  const onchainProgramId: anchor.web3.PublicKey =
+    (cfg as any).chainSignaturesProgramId ??
+    (cfg as any).chain_signatures_program_id;
+
+  if (!onchainProgramId.equals(desiredProgramId)) {
+    console.log(
+      "🔄 syncing onchain chain_signatures_program_id:",
+      onchainProgramId.toBase58(),
+      "->",
+      desiredProgramId.toBase58(),
+    );
+
+    await program.methods
+      .updateConfig(publicKeyBytes, desiredProgramId)
+      .accountsStrict({
+        payer: provider.wallet.publicKey,
+        config: vaultConfigPda,
+      })
+      .rpc();
+
+    console.log("✅ synced.");
+  } else {
+    console.log("✅ onchain chain_signatures_program_id already matches env.");
+  }
+
   return vaultConfigPda;
 }
 
@@ -227,6 +264,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         rootPublicKey: CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       },
     });
+
+    const cfg = await program.account.vaultConfig.fetch(vaultConfigPda);
+    console.log(
+      "onchain config chain sig program:",
+      cfg.chainSignaturesProgramId.toBase58(),
+    );
+    console.log("env chain sig program:", CONFIG.CHAIN_SIGNATURES_PROGRAM_ID);
 
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
       const serverConfig = {

@@ -164,6 +164,10 @@ pub struct WithdrawErc20<'info> {
     /// CHECK: This is the external chain-signatures program. We do not rely on Anchor's `Program<T>` type checks.
     /// Safety is enforced by the constraint:
     /// `chain_signatures_program.key() == config.chain_signatures_program_id`.
+    #[account(
+        constraint = chain_signatures_program.key() == config.chain_signatures_program_id
+            @ crate::error::ErrorCode::InvalidChainSignaturesProgram
+    )]
     pub chain_signatures_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
