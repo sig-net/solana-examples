@@ -7,7 +7,7 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { getAlchemyEthSepoliaRpcUrl } from '@/lib/rpc';
+import { getEthSepoliaRpcUrl } from '@/lib/rpc';
 import { encodeErc20Transfer, estimateFees } from '@/lib/evm/tx-builder';
 import { getRelayerEthAccount } from '@/lib/utils/relayer-setup';
 
@@ -41,7 +41,7 @@ async function sendGasTopUp(
   const walletClient = createWalletClient({
     account,
     chain: sepolia,
-    transport: http(getAlchemyEthSepoliaRpcUrl()),
+    transport: http(getEthSepoliaRpcUrl()),
   });
 
   const txHash = await walletClient.sendTransaction({
