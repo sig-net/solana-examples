@@ -1,5 +1,6 @@
 'use client';
 
+import { type ReactElement } from 'react';
 import { Copy, Check, Info, Loader2 } from 'lucide-react';
 import { NetworkIcon } from '@web3icons/react';
 
@@ -36,6 +37,12 @@ export function DepositAddress({
     copyToClipboard(depositAddress);
   };
 
+  // The QR helper takes a file asset via iconUrl (it only serializes SVG elements).
+  const qrIconProps: { iconUrl: string } | { icon: ReactElement } =
+    network.chain === 'midnight'
+      ? { iconUrl: '/midnight/logomark.svg' }
+      : { icon: <NetworkIcon name={network.chain} /> };
+
   return (
     <div className='gradient-popover w-full space-y-5'>
       <p className='text-dark-neutral-400 font-semibold capitalize'>
@@ -46,7 +53,7 @@ export function DepositAddress({
         <QRCode
           value={depositAddress}
           size={200}
-          icon={<NetworkIcon name={network.chain} />}
+          {...qrIconProps}
           className='mx-auto border-none bg-white sm:hidden'
           errorCorrectionLevel='M'
           margin={12}
@@ -54,7 +61,7 @@ export function DepositAddress({
         <QRCode
           value={depositAddress}
           size={242}
-          icon={<NetworkIcon name={network.chain} />}
+          {...qrIconProps}
           className='mx-auto hidden border-none bg-white sm:block'
           errorCorrectionLevel='M'
           margin={16}

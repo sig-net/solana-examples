@@ -36,12 +36,18 @@ export function BalanceDisplay({
   const { data: tokenPrices } = useTokenPrices(tokenSymbols);
 
   // Convert tokens to withdraw format (use exact balance to avoid rounding up)
+  const chainName = (chain: TokenWithBalance['chain']) =>
+    chain === 'ethereum'
+      ? 'Ethereum Sepolia'
+      : chain === 'midnight'
+        ? 'Midnight'
+        : 'Solana Devnet';
+
   const withdrawTokens: WithdrawToken[] = tokens.map(token => ({
     symbol: token.symbol,
     name: token.name,
-    chain: token.chain as 'ethereum' | 'solana',
-    chainName:
-      token.chain === 'ethereum' ? 'Ethereum Sepolia' : 'Solana Devnet',
+    chain: token.chain,
+    chainName: chainName(token.chain),
     address: token.erc20Address,
     balance: formatUnits(token.balance, token.decimals),
     decimals: token.decimals,
