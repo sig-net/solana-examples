@@ -15,7 +15,9 @@ import {
   getRpcEndpoint,
 } from '@/lib/config/connection.config';
 import { PendingTransactionsProvider } from './pending-transactions-context';
+import { MidnightProvider } from './midnight-context';
 import { TransactionStatusTracker } from '@/components/transaction-status-tracker';
+import { MidnightProgressToaster } from '@/components/midnight-progress-toaster';
 
 interface ConnectionContextState {
   connection: Connection;
@@ -56,7 +58,8 @@ const endpoint = getRpcEndpoint('client');
 const connectorConfig = getDefaultConfig({
   appName: 'Signet Bridge',
   network: 'devnet',
-  autoConnect: true,
+  // No silent Solana auto-connect: it would hijack the Midnight Ethereum-deposit path.
+  autoConnect: false,
   clusters: [
     {
       id: 'solana:devnet' as const,
@@ -77,8 +80,11 @@ export function Providers({ children }: ProvidersProps) {
         <ConnectionProvider endpoint={endpoint} config={CONNECTION_CONFIG}>
           <AppProvider connectorConfig={connectorConfig}>
             <PendingTransactionsProvider>
-              {children}
-              <TransactionStatusTracker />
+              <MidnightProvider>
+                {children}
+                <TransactionStatusTracker />
+                <MidnightProgressToaster />
+              </MidnightProvider>
             </PendingTransactionsProvider>
           </AppProvider>
         </ConnectionProvider>
