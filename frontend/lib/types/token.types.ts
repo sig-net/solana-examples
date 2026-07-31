@@ -4,7 +4,7 @@ export interface Token {
   symbol: string;
   name: string;
   decimals: number;
-  chain: 'ethereum' | 'solana';
+  chain: 'ethereum' | 'solana' | 'midnight';
 }
 
 // Token balance with string amount (for service/API data)
