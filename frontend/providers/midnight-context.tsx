@@ -13,6 +13,8 @@ import {
 
 import { midnightEnv, midnightNetworkId } from '@/lib/midnight/env';
 import { MIDNIGHT_TOKENS } from '@/lib/constants/token-metadata';
+import { ERC20_TRANSFER_GAS_LIMIT } from '@/lib/midnight/evm-envelope';
+import { SWAP_GAS_LIMIT } from '@/lib/midnight/evm-swap';
 import type { MidnightBalances } from '@/lib/midnight/vault-balances';
 
 export type { MidnightBalances, MidnightTokenBalance } from '@/lib/midnight/vault-balances';
@@ -30,6 +32,7 @@ interface MidnightContextValue {
   disconnect: () => void;
   deposit: (erc20Address: string, amountUnits: bigint) => Promise<void>;
   withdraw: (erc20Address: string, amountUnits: bigint, receiver?: string) => Promise<void>;
+  swap: (tokenInErc20: string, tokenOutErc20: string, amountUnits: bigint, fee?: bigint, slippageBps?: bigint) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -54,11 +57,11 @@ const MIDNIGHT_ERC20S = MIDNIGHT_TOKENS.map(t => t.erc20Address);
 
 // Relayer funds the gas of the address sending the MPC-signed transfer (parity with the
 // Solana bridge's top-up), so the user never hand-funds ETH.
-async function topUpGas(fromAddress: string): Promise<void> {
+async function topUpGas(fromAddress: string, gasLimit?: bigint): Promise<void> {
   const res = await fetch('/api/midnight/gas-topup', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fromAddress }),
+    body: JSON.stringify({ fromAddress, gasLimit: gasLimit?.toString() }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -221,6 +224,34 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Swap has two tokens (in/out), so it doesn't fit runFlow's single-erc20 signature. The
+  // swap is signed + paid by the VAULT account (it holds the pooled funds), so top up the
+  // vault for the swap's larger gas envelope PLUS a possible one-time router approval.
+  const runSwapFlow = async (
+    tokenInErc20: string,
+    tokenOutErc20: string,
+    amountUnits: bigint,
+    fee = 500n,
+    slippageBps = 100n,
+  ) => {
+    const providers = providersRef.current;
+    const vault = vaultRef.current;
+    const identity = identityRef.current;
+    if (!providers || !vault || !identity) throw new Error('Connect the Midnight wallet first.');
+    const { runSwap } = await import('@/lib/midnight/vault');
+    const { flow } = await import('@/lib/midnight/flow');
+    flow.start('swap');
+    try {
+      append('Requesting gas top-up from relayer...');
+      await topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT);
+      await runSwap(providers, vault, midnightEnv, identity, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps);
+      await refresh();
+    } catch (e) {
+      flow.fail((e as Error).message);
+      throw e;
+    }
+  };
+
   return (
     <MidnightContext.Provider
       value={{
@@ -236,6 +267,7 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         disconnect: reset,
         deposit: (erc20, amount) => runFlow('deposit', erc20, amount),
         withdraw: (erc20, amount, receiver) => runFlow('withdraw', erc20, amount, receiver),
+        swap: (tokenIn, tokenOut, amount) => runSwapFlow(tokenIn, tokenOut, amount),
         refresh,
       }}
     >
