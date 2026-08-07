@@ -12,26 +12,26 @@ importers:
         specifier: ^0.32.1
         version: 0.32.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@midnight-ntwrk/compact-js':
-        specifier: 2.5.5-rc.6
-        version: 2.5.5-rc.6
+        specifier: 2.5.5-rc.7
+        version: 2.5.5-rc.7
       '@midnight-ntwrk/compact-runtime':
         specifier: 0.18.0-rc.1
         version: 0.18.0-rc.1
       '@midnight-ntwrk/midnight-js':
-        specifier: 5.0.0-beta.4
-        version: 5.0.0-beta.4
+        specifier: 5.0.0-beta.6
+        version: 5.0.0-beta.6
       '@midnight-ntwrk/midnight-js-fetch-zk-config-provider':
-        specifier: 5.0.0-beta.4
-        version: 5.0.0-beta.4
+        specifier: 5.0.0-beta.6
+        version: 5.0.0-beta.6
       '@midnight-ntwrk/midnight-js-http-client-proof-provider':
-        specifier: 5.0.0-beta.4
-        version: 5.0.0-beta.4
+        specifier: 5.0.0-beta.6
+        version: 5.0.0-beta.6
       '@midnight-ntwrk/midnight-js-indexer-public-data-provider':
-        specifier: 5.0.0-beta.4
-        version: 5.0.0-beta.4(bufferutil@4.0.9)(crossws@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(utf-8-validate@5.0.10)
+        specifier: 5.0.0-beta.6
+        version: 5.0.0-beta.6(bufferutil@4.0.9)(crossws@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(utf-8-validate@5.0.10)
       '@midnight-ntwrk/midnight-js-level-private-state-provider':
-        specifier: 5.0.0-beta.4
-        version: 5.0.0-beta.4
+        specifier: 5.0.0-beta.6
+        version: 5.0.0-beta.6
       '@midnightntwrk/ledger-v9':
         specifier: 1.0.0-rc.3
         version: 1.0.0-rc.3
@@ -78,8 +78,8 @@ importers:
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.1.6(@types/react@19.1.8))(@types/react@19.1.8)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@sig-net/midnight':
-        specifier: 0.13.0
-        version: 0.13.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+        specifier: 0.19.0
+        version: 0.19.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@solana/connector':
         specifier: ^0.2.2
         version: 0.2.2(@solana/keychain-aws-kms@0.2.1(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.8.3))(@solana/keychain-turnkey@0.2.1(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.8.3))(@solana/keychain-vault@0.2.1(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.8.3))(@solana/wallet-adapter-base@0.9.27(@solana/web3.js@1.69.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(@solana/web3.js@1.69.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(@walletconnect/universal-provider@2.21.1(@react-native-async-storage/async-storage@1.24.0(react-native@0.80.1(@babel/core@7.28.0)(@types/react@19.1.8)(bufferutil@4.0.9)(react@19.2.3)(utf-8-validate@5.0.10)))(@upstash/redis@1.36.1)(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.3.5))(bufferutil@4.0.9)(fastestsmallesttextencoderdecoder@1.0.22)(react-native@0.80.1(@babel/core@7.28.0)(@types/react@19.1.8)(bufferutil@4.0.9)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.8.3)(utf-8-validate@5.0.10)
@@ -1211,50 +1211,50 @@ packages:
     resolution: {integrity: sha512-w8CVbdkDrVXFJbfBSlDfafDR6BAkpDmv1bC1UJVCoVny5tW2RKAdn9i68Xf7asYT4TnUhl/hN4zfUiKQq9II4g==}
     engines: {node: '>=16.0.0'}
 
-  '@midnight-ntwrk/compact-js@2.5.5-rc.6':
-    resolution: {integrity: sha512-rEUnBgkCtvg/v1hyIzUwLgm2Csu28B0jZ+iK4lxe713jJAbCr17OWWRmsQC1aXDP2DGvTtwCql/oUXyFznELkg==}
+  '@midnight-ntwrk/compact-js@2.5.5-rc.7':
+    resolution: {integrity: sha512-INcbIxsgK2NGm5J7pCHRsq1kxKQEXKQjFRgU84TsbP6GadqnWFg1hh0eJ/H2SS6AxAQGQjI0iasLodVTviKAIw==}
 
   '@midnight-ntwrk/compact-runtime@0.18.0-rc.1':
     resolution: {integrity: sha512-PXPjyiD8lrdM216eSpRGi1JSRes1fAwMImj1FWRML0BA3s6doOXFbX01A8suY/47xU/NCEKB9RKKU+vhW8Ec4A==}
 
-  '@midnight-ntwrk/midnight-js-contracts@5.0.0-beta.4':
-    resolution: {integrity: sha512-PXhZSTABXPNDv2OQXeSjZO7wjZG7sTDIIp9A8v7mtW6+/RqnXg1P8tr9JHjBB8roD+O6ePqehQwAoppD05otuA==}
+  '@midnight-ntwrk/midnight-js-contracts@5.0.0-beta.6':
+    resolution: {integrity: sha512-z8feJLi/vDhPluYMH/0lrVQ003zMyT4PLB20/aCXVSLQy5sxvNCOiahKIU4+dasUM9vXtlVinDGYB6uFHVKbwg==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-fetch-zk-config-provider@5.0.0-beta.4':
-    resolution: {integrity: sha512-0I5lNVVJn3g0ApCnVu3fWOGJftOo1BNWgcVAZexeuyJ7QrNaL6YjWXDk0taoH0Rda70bNx4N/FjdOHCKIl7SMw==}
+  '@midnight-ntwrk/midnight-js-fetch-zk-config-provider@5.0.0-beta.6':
+    resolution: {integrity: sha512-KUoF7/MCCnxKpwhc1ww2fy2YiG84lpR7Osw1wUTiz984VCCyLsajyZiZzg2kIJehhx9O99oX0yuj1LIfp8RCGg==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-http-client-proof-provider@5.0.0-beta.4':
-    resolution: {integrity: sha512-ynenwu8Nuv2GQ5SsSqscx1MukBlyR/0VyxvPLluo70KfrthZck5vr+73DBL4ZJdVoRMNVdVmJaTuU3ECN3ph9A==}
+  '@midnight-ntwrk/midnight-js-http-client-proof-provider@5.0.0-beta.6':
+    resolution: {integrity: sha512-5PHS28YspoNw6D1C4QluolcsaSvsbcXsCv0CKKTesrxA7iwgT/5ZXFbFbengTLsgr3Qgd2IZdv2Ed09gApxBJA==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-indexer-public-data-provider@5.0.0-beta.4':
-    resolution: {integrity: sha512-Qx5PivETxQruOEVH8XUn7aILRNHZWNdZH+nMQtCCTcCOVpHzJRsDfT1ghoPiG7TPA0WWsiLM9LW90u+RKKPqtg==}
+  '@midnight-ntwrk/midnight-js-indexer-public-data-provider@5.0.0-beta.6':
+    resolution: {integrity: sha512-4oIyzpiQi2W2NEL9WIhKqhzArFrexETZRN5WyGqnN/OIu9sP3Sy1DDUKqViMxl1xiAJwebzFTpJkSAyAT/l5eQ==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-level-private-state-provider@5.0.0-beta.4':
-    resolution: {integrity: sha512-8fTLVKZwJbbEHE9vWiq6X/HU+N0d0f7KBtOk9gxJGIhKJR1ljAOyb5Qhjqfkh5BNTfwPCBG44QX0ILTBxlSQjQ==}
+  '@midnight-ntwrk/midnight-js-level-private-state-provider@5.0.0-beta.6':
+    resolution: {integrity: sha512-86FZwi36MpsWozUdhuoh06tddZSfRup6/bJRWco5fx9F5/ad2p2F0kEc8Shvtl6Lyp+gik3RJVXvdFKqSX91UA==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-network-id@5.0.0-beta.4':
-    resolution: {integrity: sha512-sQrJQGDBmM1M0LAiTxc6LJx48H+/4NyYgJSCywqgNLoZFmppFc2Yj1fyiIYTx4qvM/0ZEMkFJ/sVRljU+nh66A==}
+  '@midnight-ntwrk/midnight-js-network-id@5.0.0-beta.6':
+    resolution: {integrity: sha512-XgvvAyHLovjdGLz96nc9K0s3LIYl5fxhXIYHF/X5VxlXHY5NZlLIjptXERcGcAQRTjZWhZbIXcUwZxXDpiSjZw==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-protocol@5.0.0-beta.4':
-    resolution: {integrity: sha512-BKPA9srbDY8PQpkDAJcTIP3G8DUo9g2wGZpspj5w8zdbZ+I7ZOz+rzTX+2kb8WsxweEWCoYDNJQGg4bainf6TQ==}
+  '@midnight-ntwrk/midnight-js-protocol@5.0.0-beta.6':
+    resolution: {integrity: sha512-qqT4S7FqclCkwUx5ISVI3xwpE1iiZ2SU/5EjSiWMf9bUdi00RANyGv+ZRKkXEMOj9OigHhu4UXmIieWGAVEhgA==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-types@5.0.0-beta.4':
-    resolution: {integrity: sha512-tZv+/U7yTSmNS3YnHaMqsPDKIDcP+6yq51shKqFO/KkerVx7XcK3zZ8fWS3PTyQUV2SzZ1zjHVA2b40baD7P1g==}
+  '@midnight-ntwrk/midnight-js-types@5.0.0-beta.6':
+    resolution: {integrity: sha512-ea8SVd8etHO2fhwNwRre2TN0lKiwUnWoPQudTjWJMZlF19U4jHW7nRWCMPO7qYgKDAsVec7o16PUY3TR7twijA==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js-utils@5.0.0-beta.4':
-    resolution: {integrity: sha512-304pnd1NyzyXKmP9hUm+13KQQHJmoJ5IrzTgf2CihCzXdl8ezkSjfsY8I/T6bZiHaZewFKp6TYPRiBePOS5N8w==}
+  '@midnight-ntwrk/midnight-js-utils@5.0.0-beta.6':
+    resolution: {integrity: sha512-TFjYhlHg7gATk52juKyMUU8aKGjHc2L+B8S6N2lNW8t+/RcqxoIJDcXLded0Zpgcp0936TxaymFm3bR/Hdysjw==}
     engines: {node: '>=22'}
 
-  '@midnight-ntwrk/midnight-js@5.0.0-beta.4':
-    resolution: {integrity: sha512-uIC99vUkbV9YeNqv8q3CZ8EYZNjLD5i7bUP7jAlgbLyaMqhYQN5iTtEM75PHyhZc+Kzmyyaw3RFptmrN/BadqQ==}
+  '@midnight-ntwrk/midnight-js@5.0.0-beta.6':
+    resolution: {integrity: sha512-xT0euhl1NrR7D/6oStvLMAVGiLZeX3F8K51e7AGmkgocWEuWMiaBfmduzyMp+qc4rCDLhAiM98hH6srmlSOH5A==}
     engines: {node: '>=22'}
 
   '@midnight-ntwrk/platform-js@3.0.0':
@@ -2196,11 +2196,11 @@ packages:
   '@scure/sr25519@0.2.0':
     resolution: {integrity: sha512-uUuLP7Z126XdSizKtrCGqYyR3b3hYtJ6Fg/XFUXmc2//k2aXHDLqZwFeXxL97gg4XydPROPVnuaHGF2+xriSKg==}
 
-  '@sig-net/midnight-serde@0.13.0':
-    resolution: {integrity: sha512-9GiP+7upZnxj/+nLAJZG738Lar9z+HGkrKJFxG5uQracT1B1na8j/ZND0aHb4luLaB+Ln9x+qlc8NA/wnDC+Tg==}
+  '@sig-net/midnight-serde@0.19.0':
+    resolution: {integrity: sha512-gbLEIYrQelmtwNQ3+IsEqXm3QSshesCSJokQInG7ZFQzcfEsdadye1j3gwylKBBxTNki8afloA3JXwZpRna1Rg==}
 
-  '@sig-net/midnight@0.13.0':
-    resolution: {integrity: sha512-XVIQUnYyBdfq36Nudk97rzppv5h/uZ+33p8KnE6KYtV61cfP1hE6t5ym8DJike4nsxiaZ/Jc9PJJZY3DopsNbg==}
+  '@sig-net/midnight@0.19.0':
+    resolution: {integrity: sha512-JiAxjuzK1BE2obf9pJwc50Qaz8Tz2/AyrQZwZPoUfj5leKe020duS1q5FWGG0k36zizsZpRHNlShkdOaKgtAmA==}
 
   '@sinclair/typebox@0.27.8':
     resolution: {integrity: sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA==}
@@ -4380,10 +4380,6 @@ packages:
       ws:
         optional: true
 
-  graphql@16.14.2:
-    resolution: {integrity: sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==}
-    engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
-
   graphql@17.0.2:
     resolution: {integrity: sha512-FRWbddMxfkjiB7z+aQDWIR+E34xo9I8c9mtK2RPv8PmMzKRvrdsreHL/Ui/TmwHJfhHChEtsFPyMHKI+xuarQQ==}
     engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
@@ -6511,14 +6507,14 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.12
       '@jridgewell/trace-mapping': 0.3.29
 
-  '@apollo/client@4.2.7(graphql-ws@6.1.1(crossws@0.3.5)(graphql@16.14.2)(ws@8.21.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.14.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rxjs@7.8.2)':
+  '@apollo/client@4.2.7(graphql-ws@6.1.1(crossws@0.3.5)(graphql@17.0.2)(ws@8.21.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@17.0.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rxjs@7.8.2)':
     dependencies:
-      '@graphql-typed-document-node/core': 3.2.0(graphql@16.14.2)
+      '@graphql-typed-document-node/core': 3.2.0(graphql@17.0.2)
       '@wry/caches': 1.0.1
       '@wry/equality': 0.5.7
       '@wry/trie': 0.5.0
-      graphql: 16.14.2
-      graphql-tag: 2.12.7(graphql@16.14.2)
+      graphql: 17.0.2
+      graphql-tag: 2.12.7(graphql@17.0.2)
       optimism: 0.18.1
       rxjs: 7.8.2
       tslib: 2.8.1
@@ -7661,10 +7657,6 @@ snapshots:
 
   '@floating-ui/utils@0.2.10': {}
 
-  '@graphql-typed-document-node/core@3.2.0(graphql@16.14.2)':
-    dependencies:
-      graphql: 16.14.2
-
   '@graphql-typed-document-node/core@3.2.0(graphql@17.0.2)':
     dependencies:
       graphql: 17.0.2
@@ -8029,7 +8021,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@midnight-ntwrk/compact-js@2.5.5-rc.6':
+  '@midnight-ntwrk/compact-js@2.5.5-rc.7':
     dependencies:
       '@effect/platform': 0.96.3(effect@3.22.0)
       '@midnight-ntwrk/compact-runtime': 0.18.0-rc.1
@@ -8047,45 +8039,45 @@ snapshots:
       '@types/object-inspect': 1.13.0
       object-inspect: 1.13.4
 
-  '@midnight-ntwrk/midnight-js-contracts@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-contracts@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
       effect: 3.22.0
 
-  '@midnight-ntwrk/midnight-js-fetch-zk-config-provider@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-fetch-zk-config-provider@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
       cross-fetch: 4.1.0
     transitivePeerDependencies:
       - encoding
 
-  '@midnight-ntwrk/midnight-js-http-client-proof-provider@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-http-client-proof-provider@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-contracts': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-contracts': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
       cross-fetch: 4.1.0
       fetch-retry: 6.0.0
     transitivePeerDependencies:
       - encoding
 
-  '@midnight-ntwrk/midnight-js-indexer-public-data-provider@5.0.0-beta.4(bufferutil@4.0.9)(crossws@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(utf-8-validate@5.0.10)':
+  '@midnight-ntwrk/midnight-js-indexer-public-data-provider@5.0.0-beta.6(bufferutil@4.0.9)(crossws@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(utf-8-validate@5.0.10)':
     dependencies:
-      '@apollo/client': 4.2.7(graphql-ws@6.1.1(crossws@0.3.5)(graphql@16.14.2)(ws@8.21.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.14.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rxjs@7.8.2)
-      '@graphql-typed-document-node/core': 3.2.0(graphql@16.14.2)
-      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@apollo/client': 4.2.7(graphql-ws@6.1.1(crossws@0.3.5)(graphql@17.0.2)(ws@8.21.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@17.0.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rxjs@7.8.2)
+      '@graphql-typed-document-node/core': 3.2.0(graphql@17.0.2)
+      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
       buffer: 6.0.3
       cross-fetch: 4.1.0
-      graphql: 16.14.2
+      graphql: 17.0.2
       graphql-ws: 6.1.1(crossws@0.3.5)(graphql@17.0.2)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       isomorphic-ws: 5.0.0(ws@8.21.1(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       rxjs: 7.8.2
@@ -8100,11 +8092,11 @@ snapshots:
       - subscriptions-transport-ws
       - utf-8-validate
 
-  '@midnight-ntwrk/midnight-js-level-private-state-provider@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-level-private-state-provider@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
       '@noble/ciphers': 2.2.0
       '@noble/hashes': 2.2.0
       abstract-level: 3.1.1
@@ -8112,37 +8104,37 @@ snapshots:
       level: 10.0.0
       superjson: 2.2.6
 
-  '@midnight-ntwrk/midnight-js-network-id@5.0.0-beta.4': {}
+  '@midnight-ntwrk/midnight-js-network-id@5.0.0-beta.6': {}
 
-  '@midnight-ntwrk/midnight-js-protocol@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-protocol@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/compact-js': 2.5.5-rc.6
+      '@midnight-ntwrk/compact-js': 2.5.5-rc.7
       '@midnight-ntwrk/compact-runtime': 0.18.0-rc.1
       '@midnight-ntwrk/platform-js': 3.0.0
       '@midnightntwrk/ledger-v9': 1.0.0-rc.3
       '@midnightntwrk/onchain-runtime-v4': 4.0.0-rc.3
 
-  '@midnight-ntwrk/midnight-js-types@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-types@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
       effect: 3.22.0
       pino: 10.3.1
       rxjs: 7.8.2
 
-  '@midnight-ntwrk/midnight-js-utils@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js-utils@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
       '@midnightntwrk/wallet-sdk-address-format': 4.0.0-beta.2
       '@noble/hashes': 2.2.0
 
-  '@midnight-ntwrk/midnight-js@5.0.0-beta.4':
+  '@midnight-ntwrk/midnight-js@5.0.0-beta.6':
     dependencies:
-      '@midnight-ntwrk/midnight-js-contracts': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
-      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-contracts': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-network-id': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-protocol': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
+      '@midnight-ntwrk/midnight-js-utils': 5.0.0-beta.6
 
   '@midnight-ntwrk/platform-js@3.0.0':
     dependencies:
@@ -9539,14 +9531,14 @@ snapshots:
       '@noble/curves': 1.9.2
       '@noble/hashes': 1.8.0
 
-  '@sig-net/midnight-serde@0.13.0': {}
+  '@sig-net/midnight-serde@0.19.0': {}
 
-  '@sig-net/midnight@0.13.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)':
+  '@sig-net/midnight@0.19.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)':
     dependencies:
       '@midnight-ntwrk/compact-runtime': 0.18.0-rc.1
-      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.4
+      '@midnight-ntwrk/midnight-js-types': 5.0.0-beta.6
       '@noble/curves': 2.2.0
-      '@sig-net/midnight-serde': 0.13.0
+      '@sig-net/midnight-serde': 0.19.0
       ethers: 6.17.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
     transitivePeerDependencies:
       - bufferutil
@@ -12794,9 +12786,9 @@ snapshots:
     dependencies:
       graphql: 17.0.2
 
-  graphql-tag@2.12.7(graphql@16.14.2):
+  graphql-tag@2.12.7(graphql@17.0.2):
     dependencies:
-      graphql: 16.14.2
+      graphql: 17.0.2
       tslib: 2.8.1
 
   graphql-ws@6.1.1(crossws@0.3.5)(graphql@17.0.2)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)):
@@ -12805,8 +12797,6 @@ snapshots:
     optionalDependencies:
       crossws: 0.3.5
       ws: 8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
-
-  graphql@16.14.2: {}
 
   graphql@17.0.2: {}
 
