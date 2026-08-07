@@ -1,5 +1,9 @@
 import { rawTokenType } from '@midnight-ntwrk/compact-runtime';
-import { Contract as EthersContract, JsonRpcProvider, type Transaction } from 'ethers';
+import {
+  Contract as EthersContract,
+  JsonRpcProvider,
+  type Transaction,
+} from 'ethers';
 import {
   calculateRequestId,
   requestIdHex,
@@ -42,15 +46,16 @@ import {
 } from './contract-exports';
 import {
   APPROVE_SELECTOR,
-  EXACT_INPUT_SINGLE_SELECTOR,
+  EXACT_OUTPUT_SINGLE_SELECTOR,
   MAX_APPROVE,
   SWAP_GAS_LIMIT,
   SWAP_MAX_FEE_PER_GAS,
   SWAP_MAX_PRIORITY_FEE_PER_GAS,
   SWAP_MPC_ROUTING,
-  SWAP_RESULT_SCHEMA,
+  SWAP_OUTPUT_SCHEMA,
+  SWAP_RESPOND_SCHEMA,
   UNISWAP_SWAP_ROUTER_02,
-  quoteExactInputSingle,
+  quoteExactOutputSingle,
   routerAllowance,
 } from './evm-swap';
 
@@ -91,26 +96,41 @@ export interface Identity {
 // Buffer (the browser polyfill emits different U+FFFD runs, desyncing the address).
 export function deriveIdentity(secretKey: Uint8Array): Identity {
   const commitment = pureCircuits.userCommitment(secretKey);
-  const pathString = new TextDecoder('utf-8').decode(commitment).replace(/\0/g, '');
+  const pathString = new TextDecoder('utf-8')
+    .decode(commitment)
+    .replace(/\0/g, '');
   return { secretKey, commitment, pathString };
 }
 export function depositAddress(env: Env, identity: Identity): string {
-  return deriveEvmAddress(env.mpcSecpPub, env.contractAddress, identity.pathString);
+  return deriveEvmAddress(
+    env.mpcSecpPub,
+    env.contractAddress,
+    identity.pathString,
+  );
 }
 export function vaultAddress(env: Env): string {
   return deriveEvmAddress(env.mpcSecpPub, env.contractAddress, 'vault');
 }
 
 // Shielded vault-token color for an ERC-20 under this vault.
-export function vaultTokenType(erc20Hex: string, vaultContractAddress: string): string {
+export function vaultTokenType(
+  erc20Hex: string,
+  vaultContractAddress: string,
+): string {
   const raw: any = rawTokenType(
     (pureCircuits as any).vaultTokenDomainSeparator(addrBytes(erc20Hex)),
     vaultContractAddress as any,
   );
-  return (typeof raw === 'string' ? raw : bytesToHex(raw)).replace(/^0x/, '').toLowerCase();
+  return (typeof raw === 'string' ? raw : bytesToHex(raw))
+    .replace(/^0x/, '')
+    .toLowerCase();
 }
 
-export async function erc20Balance(rpcUrl: string, erc20Hex: string, address: string): Promise<bigint> {
+export async function erc20Balance(
+  rpcUrl: string,
+  erc20Hex: string,
+  address: string,
+): Promise<bigint> {
   const token = new EthersContract(
     erc20Hex,
     ['function balanceOf(address) view returns (uint256)'],
@@ -120,7 +140,9 @@ export async function erc20Balance(rpcUrl: string, erc20Hex: string, address: st
 }
 
 async function readVaultLedger(providers: any, env: Env): Promise<any> {
-  const cs = await providers.publicDataProvider.queryContractState(env.contractAddress);
+  const cs = await providers.publicDataProvider.queryContractState(
+    env.contractAddress,
+  );
   if (!cs) throw new Error(`no contract state at ${env.contractAddress}`);
   return (ledger as any)(cs.data);
 }
@@ -179,15 +201,26 @@ function predictRequestId(
   return requestIdHex(calculateRequestId(expected)) as RequestIdHex;
 }
 
-async function assertRequestOnLedger(providers: any, env: Env, rid: RequestIdHex, circuit: string) {
+async function assertRequestOnLedger(
+  providers: any,
+  env: Env,
+  rid: RequestIdHex,
+  circuit: string,
+) {
   const after = await readVaultLedger(providers, env);
-  if (!toSignBidirectionalEventIndex(after.signBidirectionalEventMap).has(rid)) {
+  if (
+    !toSignBidirectionalEventIndex(after.signBidirectionalEventMap).has(rid)
+  ) {
     throw new Error(`request ${rid} not on the ledger after ${circuit}()`);
   }
 }
 
 // Swaps register in swapEventMap (field 11), a separate map from the transfer map above.
-async function assertSwapRequestOnLedger(providers: any, env: Env, rid: RequestIdHex) {
+async function assertSwapRequestOnLedger(
+  providers: any,
+  env: Env,
+  rid: RequestIdHex,
+) {
   const after = await readVaultLedger(providers, env);
   if (!toSignBidirectionalEventIndex(after.swapEventMap).has(rid)) {
     throw new Error(`swap request ${rid} not on the ledger after swap()`);
@@ -238,7 +271,11 @@ function predictCallRequestId(
   return requestIdHex(calculateRequestId(expected)) as RequestIdHex;
 }
 
-async function fetchFakenetResponse(env: Env, requestId: string, timeoutMs = 8000): Promise<any> {
+async function fetchFakenetResponse(
+  env: Env,
+  requestId: string,
+  timeoutMs = 8000,
+): Promise<any> {
   const url = `${env.fakenetResponsesUrl}/responses/${requestId}`;
   const deadline = Date.now() + timeoutMs;
   let last = 'not attempted';
@@ -269,7 +306,11 @@ async function pollSignatureResponse(
   const end = Date.now() + timeoutMs;
   const warned = new Set<bigint>();
   while (Date.now() < end) {
-    const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
+    const { verified, verdicts } =
+      await reader.getVerifiedSignatureRespondedEvent(
+        requestId,
+        expectedSigner,
+      );
     for (const v of verdicts as any[]) {
       if (v.rejectedReason !== undefined && !warned.has(v.count)) {
         warned.add(v.count);
@@ -278,7 +319,10 @@ async function pollSignatureResponse(
     }
     if (verified !== undefined) {
       const request = await reader.getSignatureRequest(requestId);
-      return signBidirectionalEventToSignedEvmTransaction(request, verified) as unknown as Transaction;
+      return signBidirectionalEventToSignedEvmTransaction(
+        request,
+        verified,
+      ) as unknown as Transaction;
     }
     await sleep(1000);
   }
@@ -299,7 +343,11 @@ async function broadcastEvm(env: Env, tx: Transaction): Promise<void> {
     await provider.broadcastTransaction(tx.serialized);
   } catch (e: any) {
     const msg = String(e?.message ?? '').toLowerCase();
-    if (e?.code !== 'NONCE_EXPIRED' && !msg.includes('already known') && !msg.includes('nonce too low'))
+    if (
+      e?.code !== 'NONCE_EXPIRED' &&
+      !msg.includes('already known') &&
+      !msg.includes('nonce too low')
+    )
       throw e;
   }
   const receipt = await provider.waitForTransaction(hash, 1, 3 * MINUTE);
@@ -315,8 +363,13 @@ async function fetchAttestedRespondOutcome(
   requestId: RequestIdHex,
   indexField: number = VAULT_REQUESTS_INDEX_FIELD,
   schema: string = RESULT_SCHEMA,
+  respondSchema: string = schema,
 ): Promise<any | undefined> {
-  const events = await responseReader(providers, env, indexField).getRespondBidirectionalEvents(requestId);
+  const events = await responseReader(
+    providers,
+    env,
+    indexField,
+  ).getRespondBidirectionalEvents(requestId);
   if (events.length === 0) return undefined;
   let cached: any;
   try {
@@ -325,21 +378,28 @@ async function fetchAttestedRespondOutcome(
     return undefined;
   }
   const candidates: { serializedOutput: Uint8Array; isFailure: boolean }[] = [];
-  // The transfer schema decodes a bool; the swap schema a uint256 amountOut. Either way
-  // decodedValue is what a success settle mints against (unused for the bool case).
+  // The transfer schema decodes a bool; the swap OUTPUT schema a uint256 amountIn. The MPC
+  // re-packs against `respondSchema` (equal to `schema` for the symmetric transfer case, but a
+  // narrower uint64 for swap). decodedValue is what a success settle reads (the bool, or amountIn).
   let decodedValue: any;
   if (cached.success && cached.output != null) {
     try {
       const decoded: any = deserializeEvmOutput(schema as any, cached.output);
       decodedValue = decoded;
-      candidates.push({ serializedOutput: serializeRespondOutput(schema as any, decoded), isFailure: false });
+      candidates.push({
+        serializedOutput: serializeRespondOutput(respondSchema as any, decoded),
+        isFailure: false,
+      });
     } catch {
       /* only the failure candidate can match */
     }
   }
   candidates.push({ serializedOutput: MPC_FAILURE_OUTPUT, isFailure: true });
   for (const c of candidates) {
-    const digest = calculateSignetAttestationDigest(requestIdBytes(requestId), c.serializedOutput);
+    const digest = calculateSignetAttestationDigest(
+      requestIdBytes(requestId),
+      c.serializedOutput,
+    );
     const event = (events as any[]).find(e =>
       Buffer.from(e.attestationDigest).equals(Buffer.from(digest)),
     );
@@ -369,18 +429,35 @@ async function settleViaMpc(
   log: (m: string) => void,
   indexField: number = VAULT_REQUESTS_INDEX_FIELD,
   schema: string = RESULT_SCHEMA,
+  respondSchema: string = schema,
 ): Promise<any> {
   flow.set('settling');
   log('Waiting for MPC signature + settling on Sepolia...');
-  const signed = await pollSignatureResponse(providers, env, rid, expectedSigner, log, indexField);
+  const signed = await pollSignatureResponse(
+    providers,
+    env,
+    rid,
+    expectedSigner,
+    log,
+    indexField,
+  );
   await broadcastEvm(env, signed);
   const end = Date.now() + 6 * MINUTE;
   while (Date.now() < end) {
-    const outcome = await fetchAttestedRespondOutcome(providers, env, rid, indexField, schema);
+    const outcome = await fetchAttestedRespondOutcome(
+      providers,
+      env,
+      rid,
+      indexField,
+      schema,
+      respondSchema,
+    );
     if (outcome) return outcome;
     await sleep(1000);
   }
-  throw new Error(`timed out waiting for respond-bidirectional attestation for ${rid}`);
+  throw new Error(
+    `timed out waiting for respond-bidirectional attestation for ${rid}`,
+  );
 }
 
 // deposit() -> MPC round trip -> claim() mints the shielded token.
@@ -401,27 +478,53 @@ export async function runDeposit(
 
   const before = await readVaultLedger(providers, env);
   if (!before.initialized) throw new Error('vault not initialized');
-  const rid = predictRequestId(env, before, identity.commitment, nonce, erc20, before.vaultEvmAddress, amount);
+  const rid = predictRequestId(
+    env,
+    before,
+    identity.commitment,
+    nonce,
+    erc20,
+    before.vaultEvmAddress,
+    amount,
+  );
   log(`Predicted requestId 0x${rid}`);
 
   flow.set('proving');
   log('Submitting deposit() on Midnight...');
-  await vault.callTx.deposit(nonce, GAS_LIMIT, MAX_FEE, PRIORITY_FEE, SIGNET_DEFAULT_KEY_VERSION, {
-    erc20Address: erc20,
-    amount,
-  });
+  await vault.callTx.deposit(
+    nonce,
+    GAS_LIMIT,
+    MAX_FEE,
+    PRIORITY_FEE,
+    SIGNET_DEFAULT_KEY_VERSION,
+    {
+      erc20Address: erc20,
+      amount,
+    },
+  );
   await assertRequestOnLedger(providers, env, rid, 'deposit');
 
   const outcome = await settleViaMpc(providers, env, rid, userEvm, log);
-  if (!outcome.succeeded) throw new Error(`MPC attested deposit ${rid} as FAILED`);
+  if (!outcome.succeeded)
+    throw new Error(`MPC attested deposit ${rid} as FAILED`);
 
   flow.set('claim-proving');
   log('Submitting claim() to mint shielded token...');
   const selfRecipient = {
     is_some: false,
-    value: { is_left: true, left: { bytes: new Uint8Array(32) }, right: { bytes: new Uint8Array(32) } },
+    value: {
+      is_left: true,
+      left: { bytes: new Uint8Array(32) },
+      right: { bytes: new Uint8Array(32) },
+    },
   };
-  await vault.callTx.claim(requestIdBytes(rid), outcome.event, outcome.serializedOutput, rand32(), selfRecipient);
+  await vault.callTx.claim(
+    requestIdBytes(rid),
+    outcome.event,
+    outcome.serializedOutput,
+    rand32(),
+    selfRecipient,
+  );
   flow.set('done');
   log('Deposit complete — shielded token minted.');
 }
@@ -446,7 +549,15 @@ export async function runWithdraw(
 
   const before = await readVaultLedger(providers, env);
   if (!before.initialized) throw new Error('vault not initialized');
-  const rid = predictRequestId(env, before, VAULT_PATH, nonce, erc20, dest, amount);
+  const rid = predictRequestId(
+    env,
+    before,
+    VAULT_PATH,
+    nonce,
+    erc20,
+    dest,
+    amount,
+  );
 
   const coin = {
     nonce: rand32(),
@@ -456,7 +567,12 @@ export async function runWithdraw(
 
   flow.set('proving');
   log('Submitting withdraw() (surrendering the vault coin)...');
-  await vault.callTx.withdraw(nonce, SIGNET_DEFAULT_KEY_VERSION, { erc20Address: erc20, amount, destEvmAddress: dest }, coin);
+  await vault.callTx.withdraw(
+    nonce,
+    SIGNET_DEFAULT_KEY_VERSION,
+    { erc20Address: erc20, amount, destEvmAddress: dest },
+    coin,
+  );
   await assertRequestOnLedger(providers, env, rid, 'withdraw');
 
   const outcome = await settleViaMpc(providers, env, rid, vaultEvm, log);
@@ -466,17 +582,33 @@ export async function runWithdraw(
     log('EVM transfer never executed — refunding...');
     // refundWithdraw + refundSwap are merged into one `refund` circuit; it routes on which
     // pending-marker map holds the id (refundCommitment here).
-    await vault.callTx.refund(requestIdBytes(rid), outcome.event, outcome.serializedOutput, rand32());
+    await vault.callTx.refund(
+      requestIdBytes(rid),
+      outcome.event,
+      outcome.serializedOutput,
+      rand32(),
+    );
   } else {
     log('Settling completeWithdraw...');
-    await vault.callTx.completeWithdraw(requestIdBytes(rid), outcome.event, outcome.serializedOutput, rand32());
+    await vault.callTx.completeWithdraw(
+      requestIdBytes(rid),
+      outcome.event,
+      outcome.serializedOutput,
+      rand32(),
+    );
   }
   flow.set('done');
-  log(outcome.succeeded ? 'Withdraw finalized (success).' : 'Withdraw settled (refunded).');
+  log(
+    outcome.succeeded
+      ? 'Withdraw finalized (success).'
+      : 'Withdraw settled (refunded).',
+  );
 }
 
 async function evmNonce(env: Env, address: string): Promise<bigint> {
-  return BigInt(await new JsonRpcProvider(env.evmRpcUrl).getTransactionCount(address));
+  return BigInt(
+    await new JsonRpcProvider(env.evmRpcUrl).getTransactionCount(address),
+  );
 }
 
 // Ensure the vault account has approved the router for `erc20Hex`: read the live allowance,
@@ -500,15 +632,34 @@ async function ensureRouterApproved(
   const before = await readVaultLedger(providers, env);
   if (!before.initialized) throw new Error('vault not initialized');
   const rid = predictCallRequestId(
-    env, before, VAULT_PATH, nonce, erc20, MPC_ROUTING, GAS_LIMIT, MAX_FEE, PRIORITY_FEE,
+    env,
+    before,
+    VAULT_PATH,
+    nonce,
+    erc20,
+    MPC_ROUTING,
+    GAS_LIMIT,
+    MAX_FEE,
+    PRIORITY_FEE,
     APPROVE_SELECTOR,
-    [evmAddressAbiWord(addrBytes(UNISWAP_SWAP_ROUTER_02)), numericAbiWord(MAX_APPROVE)],
+    [
+      evmAddressAbiWord(addrBytes(UNISWAP_SWAP_ROUTER_02)),
+      numericAbiWord(MAX_APPROVE),
+    ],
   );
   await vault.callTx.approveRouter(erc20, nonce, SIGNET_DEFAULT_KEY_VERSION);
   await assertRequestOnLedger(providers, env, rid, 'approveRouter');
 
   // Sign-only: the vault account signs the approve, the client broadcasts it, done.
-  const signed = await pollSignatureResponse(providers, env, rid, vaultEvm, log, VAULT_REQUESTS_INDEX_FIELD, 3 * MINUTE);
+  const signed = await pollSignatureResponse(
+    providers,
+    env,
+    rid,
+    vaultEvm,
+    log,
+    VAULT_REQUESTS_INDEX_FIELD,
+    3 * MINUTE,
+  );
   await broadcastEvm(env, signed);
   log('Router approved.');
 }
@@ -524,7 +675,7 @@ export async function runSwap(
   identity: Identity,
   tokenInHex: string,
   tokenOutHex: string,
-  amount: bigint,
+  amountOut: bigint,
   log: (m: string) => void,
   fee = 500n,
   slippageBps = 100n,
@@ -538,62 +689,98 @@ export async function runSwap(
   flow.set('preparing');
   await ensureRouterApproved(providers, vault, env, tokenInHex, log);
 
-  // 2. Live QuoterV2 quote at the chosen fee tier -> amountOutMin, the on-chain slippage floor.
-  const { amountOut: quoted, amountOutMin } = await quoteExactInputSingle(
-    env.evmRpcUrl, tokenInHex, tokenOutHex, fee, amount, slippageBps,
+  // 2. Live QuoterV2 quote at the chosen fee tier -> amountInMaximum, the on-chain slippage cap.
+  const { amountIn: quoted, amountInMaximum } = await quoteExactOutputSingle(
+    env.evmRpcUrl,
+    tokenInHex,
+    tokenOutHex,
+    fee,
+    amountOut,
+    slippageBps,
   );
-  log(`Quote: ${amount} in -> ~${quoted} out (min ${amountOutMin}, fee ${fee})`);
+  log(
+    `Quote: ~${quoted} in -> ${amountOut} out (max ${amountInMaximum}, fee ${fee})`,
+  );
 
-  // 3. swap(): surrender (burn) the tokenIn vault coin, record the exactInputSingle request.
+  // 3. swap(): surrender (burn) amountInMaximum of the tokenIn vault coin, record the
+  // exactOutputSingle request. completeSwap returns the unspent remainder as change.
   const nonce = await evmNonce(env, vaultEvm);
   const before = await readVaultLedger(providers, env);
   if (!before.initialized) throw new Error('vault not initialized');
   const rid = predictCallRequestId(
-    env, before, VAULT_PATH, nonce, addrBytes(UNISWAP_SWAP_ROUTER_02),
-    SWAP_MPC_ROUTING, SWAP_GAS_LIMIT, SWAP_MAX_FEE_PER_GAS, SWAP_MAX_PRIORITY_FEE_PER_GAS,
-    EXACT_INPUT_SINGLE_SELECTOR,
+    env,
+    before,
+    VAULT_PATH,
+    nonce,
+    addrBytes(UNISWAP_SWAP_ROUTER_02),
+    SWAP_MPC_ROUTING,
+    SWAP_GAS_LIMIT,
+    SWAP_MAX_FEE_PER_GAS,
+    SWAP_MAX_PRIORITY_FEE_PER_GAS,
+    EXACT_OUTPUT_SINGLE_SELECTOR,
     [
       evmAddressAbiWord(tokenIn),
       evmAddressAbiWord(tokenOut),
       numericAbiWord(fee),
       evmAddressAbiWord(addrBytes(vaultEvm)),
-      numericAbiWord(amount),
-      numericAbiWord(amountOutMin),
+      numericAbiWord(amountOut),
+      numericAbiWord(amountInMaximum),
       numericAbiWord(0n),
     ],
   );
   const coin = {
     nonce: rand32(),
     color: hexToBytes(vaultTokenType(tokenInHex, env.contractAddress)),
-    value: amount,
+    value: amountInMaximum,
   };
 
   flow.set('proving');
   log('Submitting swap() (surrendering the tokenIn vault coin)...');
   await vault.callTx.swap(
-    nonce, SIGNET_DEFAULT_KEY_VERSION,
-    { tokenIn, tokenOut, fee, amountIn: amount, amountOutMin },
+    nonce,
+    SIGNET_DEFAULT_KEY_VERSION,
+    { tokenIn, tokenOut, fee, amountOut, amountInMaximum },
     coin,
   );
   await assertSwapRequestOnLedger(providers, env, rid);
 
-  // 4. MPC signs the swap with the vault account, broadcasts, attests (field 11 + swap schema).
+  // 4. MPC signs the swap with the vault account, broadcasts, attests (field 11 + swap schemas:
+  // decode the uint256 amountIn, verify against the uint64-packed respond output).
   const outcome = await settleViaMpc(
-    providers, env, rid, vaultEvm, log, VAULT_SWAP_REQUESTS_INDEX_FIELD, SWAP_RESULT_SCHEMA,
+    providers,
+    env,
+    rid,
+    vaultEvm,
+    log,
+    VAULT_SWAP_REQUESTS_INDEX_FIELD,
+    SWAP_OUTPUT_SCHEMA,
+    SWAP_RESPOND_SCHEMA,
   );
 
-  // 5. Settle: completeSwap mints the attested amountOut of tokenOut, or refund re-mints
-  // tokenIn if the EVM swap never executed.
+  // 5. Settle: completeSwap mints the exact amountOut of tokenOut plus the unspent tokenIn as
+  // change, or refund re-mints amountInMaximum if the EVM swap never executed.
   flow.set('claim-proving');
   if (outcome.matchedFailureOutput) {
     log('Swap did not execute on EVM — refunding tokenIn...');
-    await vault.callTx.refund(requestIdBytes(rid), outcome.event, outcome.serializedOutput, rand32());
+    await vault.callTx.refund(
+      requestIdBytes(rid),
+      outcome.event,
+      outcome.serializedOutput,
+      rand32(),
+    );
     flow.set('done');
     log('Swap refunded (did not execute).');
     return;
   }
-  log('Settling completeSwap (minting shielded tokenOut)...');
-  await vault.callTx.completeSwap(requestIdBytes(rid), outcome.event, outcome.serializedOutput, rand32());
+  log('Settling completeSwap (minting shielded tokenOut + change)...');
+  await vault.callTx.completeSwap(
+    requestIdBytes(rid),
+    outcome.event,
+    outcome.serializedOutput,
+    rand32(),
+  );
   flow.set('done');
-  log(`Swap complete — minted ${outcome.decoded?.amountOut ?? '?'} tokenOut.`);
+  log(
+    `Swap complete — minted ${amountOut} tokenOut (spent ~${outcome.decoded?.amountIn ?? '?'} tokenIn).`,
+  );
 }

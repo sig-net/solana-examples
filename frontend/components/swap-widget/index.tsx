@@ -11,7 +11,11 @@ import { MIDNIGHT_TOKENS } from '@/lib/constants/token-metadata';
 import { useMidnightWallet } from '@/providers/midnight-context';
 import { useMidnightProgress } from '@/hooks/use-midnight-progress';
 import { midnightEnv } from '@/lib/midnight/env';
-import { discoverSwappablePairs, pairKey, quoteBestFee } from '@/lib/midnight/evm-swap';
+import {
+  discoverSwappablePairs,
+  pairKey,
+  quoteBestFee,
+} from '@/lib/midnight/evm-swap';
 import type { Token } from '@/lib/types/token.types';
 
 import { Button } from '../ui/button';
@@ -27,7 +31,8 @@ interface SwapWidgetProps {
   className?: string;
 }
 
-// Slippage presets in bps (0.1% / 0.5% / 1%). The swap binds amountOutMin = quote * (1 - bps).
+// Slippage presets in bps (0.1% / 0.5% / 1%). exactOutput: the swap binds amountInMaximum =
+// quote * (1 + bps), the most input it will spend for the exact output.
 const SLIPPAGE_PRESETS = [10n, 50n, 100n];
 const DEFAULT_SLIPPAGE_BPS = 100n;
 
@@ -49,12 +54,16 @@ export function SwapWidget({ className }: SwapWidgetProps) {
   const [swapping, setSwapping] = useState(false);
   // The Uniswap V3 fee tier discovered for the current pair (null = no pool at any tier).
   const [fee, setFee] = useState<bigint | null>(null);
+  // The amountInMaximum the swap will burn for the requested output (with slippage headroom).
+  const [maxIn, setMaxIn] = useState<bigint>(0n);
   const [quoting, setQuoting] = useState(false);
   const [slippageBps, setSlippageBps] = useState<bigint>(DEFAULT_SLIPPAGE_BPS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Which token pairs have a Uniswap pool (pairKey set; null while still discovering). Only
   // tokens that pair with something are offered — a token with no pool anywhere is hidden.
-  const [swappablePairs, setSwappablePairs] = useState<Set<string> | null>(null);
+  const [swappablePairs, setSwappablePairs] = useState<Set<string> | null>(
+    null,
+  );
 
   const enabled = midnight.connected;
 
@@ -82,7 +91,10 @@ export function SwapWidget({ className }: SwapWidgetProps) {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    discoverSwappablePairs(midnightEnv.evmRpcUrl, MIDNIGHT_TOKENS.map(t => t.erc20Address))
+    discoverSwappablePairs(
+      midnightEnv.evmRpcUrl,
+      MIDNIGHT_TOKENS.map(t => t.erc20Address),
+    )
       .then(pairs => !cancelled && setSwappablePairs(pairs))
       .catch(() => !cancelled && setSwappablePairs(new Set()));
     return () => {
@@ -96,7 +108,9 @@ export function SwapWidget({ className }: SwapWidgetProps) {
       swappablePairs
         ? tokens.filter(t =>
             tokens.some(
-              o => o.erc20Address !== t.erc20Address && swappablePairs.has(pairKey(t.erc20Address, o.erc20Address)),
+              o =>
+                o.erc20Address !== t.erc20Address &&
+                swappablePairs.has(pairKey(t.erc20Address, o.erc20Address)),
             ),
           )
         : [],
@@ -108,7 +122,9 @@ export function SwapWidget({ className }: SwapWidgetProps) {
         ? tokens.filter(
             t =>
               t.erc20Address !== fromToken.erc20Address &&
-              swappablePairs.has(pairKey(fromToken.erc20Address, t.erc20Address)),
+              swappablePairs.has(
+                pairKey(fromToken.erc20Address, t.erc20Address),
+              ),
           )
         : [],
     [tokens, swappablePairs, fromToken],
@@ -128,32 +144,43 @@ export function SwapWidget({ className }: SwapWidgetProps) {
   useEffect(() => {
     if (toTokens.length === 0) return;
     setToToken(prev =>
-      prev && toTokens.some(t => t.erc20Address === prev.erc20Address) ? prev : toTokens[0],
+      prev && toTokens.some(t => t.erc20Address === prev.erc20Address)
+        ? prev
+        : toTokens[0],
     );
   }, [toTokens]);
 
   // Keep the from/to selections in sync with refreshed balances (same token id, new balance).
-  const fromSel = fromToken && tokens.find(t => t.erc20Address === fromToken.erc20Address);
-  const toSel = toToken && tokens.find(t => t.erc20Address === toToken.erc20Address);
+  const fromSel =
+    fromToken && tokens.find(t => t.erc20Address === fromToken.erc20Address);
+  const toSel =
+    toToken && tokens.find(t => t.erc20Address === toToken.erc20Address);
 
-  // Live quote for the "to" amount, discovering the fee tier that actually has a pool for this
-  // pair (USDC/EURC is 0.05% but USDC/DAI may only exist at another tier). Best-effort; the
-  // swap re-quotes on-chain for the slippage floor. Debounced, cancelled if inputs change.
+  // exactOutput: the user enters the DESIRED OUTPUT (toAmount); we quote the required INPUT
+  // across fee tiers (discovering the tier that actually has a pool — USDC/EURC is 0.05% but
+  // USDC/DAI may only exist at another tier) and show the amountInMaximum the swap burns in the
+  // from field. Best-effort; the swap re-quotes on-chain. Debounced, cancelled if inputs change.
   useEffect(() => {
     setFee(null);
-    if (!enabled || !fromSel || !toSel || fromSel.erc20Address === toSel.erc20Address) {
-      setToAmount('');
+    setMaxIn(0n);
+    if (
+      !enabled ||
+      !fromSel ||
+      !toSel ||
+      fromSel.erc20Address === toSel.erc20Address
+    ) {
+      setFromAmount('');
       return;
     }
-    let amountIn: bigint;
+    let amountOut: bigint;
     try {
-      amountIn = parseUnits(fromAmount || '0', fromSel.decimals);
+      amountOut = parseUnits(toAmount || '0', toSel.decimals);
     } catch {
-      setToAmount('');
+      setFromAmount('');
       return;
     }
-    if (amountIn <= 0n) {
-      setToAmount('');
+    if (amountOut <= 0n) {
+      setFromAmount('');
       return;
     }
     let cancelled = false;
@@ -164,16 +191,20 @@ export function SwapWidget({ className }: SwapWidgetProps) {
           midnightEnv.evmRpcUrl,
           fromSel.erc20Address,
           toSel.erc20Address,
-          amountIn,
+          amountOut,
           slippageBps,
         );
         if (cancelled) return;
         setFee(best?.fee ?? null);
-        setToAmount(best ? formatUnits(best.amountOut, toSel.decimals) : '');
+        setMaxIn(best?.amountInMaximum ?? 0n);
+        setFromAmount(
+          best ? formatUnits(best.amountInMaximum, fromSel.decimals) : '',
+        );
       } catch {
         if (!cancelled) {
           setFee(null);
-          setToAmount('');
+          setMaxIn(0n);
+          setFromAmount('');
         }
       } finally {
         if (!cancelled) setQuoting(false);
@@ -183,13 +214,25 @@ export function SwapWidget({ className }: SwapWidgetProps) {
       cancelled = true;
       clearTimeout(id);
     };
-  }, [enabled, fromAmount, fromSel, toSel, slippageBps]);
+  }, [enabled, toAmount, fromSel, toSel, slippageBps]);
 
+  // The user must hold at least amountInMaximum of tokenIn (the swap burns it up front).
   const amountValid = (() => {
-    if (!fromSel) return false;
+    if (!fromSel || !toSel) return false;
     try {
-      const units = parseUnits(fromAmount || '0', fromSel.decimals);
-      return units > 0n && units <= fromSel.units;
+      const out = parseUnits(toAmount || '0', toSel.decimals);
+      return out > 0n && maxIn > 0n && maxIn <= fromSel.units;
+    } catch {
+      return false;
+    }
+  })();
+
+  // Whether a positive output has been entered (for the "no pool" hint, which fires when a valid
+  // output yields no tier — amountValid requires a successful quote so can't express it).
+  const outEntered = (() => {
+    if (!toSel) return false;
+    try {
+      return parseUnits(toAmount || '0', toSel.decimals) > 0n;
     } catch {
       return false;
     }
@@ -207,19 +250,27 @@ export function SwapWidget({ className }: SwapWidgetProps) {
 
   const handleSwap = () => {
     if (!canSwap || !fromSel || !toSel || fee === null) return;
-    const units = parseUnits(fromAmount, fromSel.decimals);
+    const amountOut = parseUnits(toAmount, toSel.decimals);
     setSwapping(true);
     midnight
-      .swap(fromSel.erc20Address, toSel.erc20Address, units, fee, slippageBps)
+      .swap(
+        fromSel.erc20Address,
+        toSel.erc20Address,
+        amountOut,
+        fee,
+        slippageBps,
+      )
       .then(() => {
         setFromAmount('');
         setToAmount('');
       })
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Swap failed'))
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : 'Swap failed'),
+      )
       .finally(() => setSwapping(false));
   };
 
-  const noPool = amountValid && !quoting && fee === null;
+  const noPool = outEntered && !quoting && fee === null;
   const buttonLabel = !enabled
     ? 'Connect Midnight to swap'
     : swappablePairs === null
@@ -257,8 +308,9 @@ export function SwapWidget({ className }: SwapWidgetProps) {
           <DialogHeader>
             <DialogTitle>Swap settings</DialogTitle>
             <DialogDescription>
-              Max slippage — the swap reverts on-chain if the output falls below this
-              tolerance of the quote.
+              Max slippage — you receive the exact output; the swap reverts
+              on-chain if the required input exceeds this tolerance above the
+              quote.
             </DialogDescription>
           </DialogHeader>
           <div className='flex flex-wrap gap-2'>
@@ -279,7 +331,7 @@ export function SwapWidget({ className }: SwapWidgetProps) {
       <div className='flex flex-col gap-4'>
         <TokenAmountDisplay
           value={fromAmount}
-          onChange={setFromAmount}
+          onChange={() => {}}
           tokens={enabled ? fromTokens : []}
           selectedToken={fromSel}
           onTokenSelect={t => setFromToken(t as TokenWithBalance)}
@@ -293,7 +345,7 @@ export function SwapWidget({ className }: SwapWidgetProps) {
 
         <TokenAmountDisplay
           value={toAmount}
-          onChange={() => {}}
+          onChange={setToAmount}
           tokens={enabled ? toTokens : []}
           selectedToken={toSel}
           onTokenSelect={t => setToToken(t as TokenWithBalance)}

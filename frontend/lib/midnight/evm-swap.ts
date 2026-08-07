@@ -10,12 +10,15 @@ import {
 } from '@sig-net/midnight';
 
 // Uniswap V3 on Sepolia (also present on a Sepolia fork).
-export const UNISWAP_SWAP_ROUTER_02 = '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E';
+export const UNISWAP_SWAP_ROUTER_02 =
+  '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E';
 export const UNISWAP_QUOTER_V2 = '0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3';
 export const UNISWAP_V3_FACTORY = '0x0227628f3F023bb0B980b67D528571c95c6DaC1c';
 
-// exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) -> uint256.
-export const EXACT_INPUT_SINGLE_SELECTOR = new Uint8Array([0x04, 0xe4, 0x5a, 0xaf]);
+// exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160)) -> uint256 amountIn.
+export const EXACT_OUTPUT_SINGLE_SELECTOR = new Uint8Array([
+  0x50, 0x23, 0xb4, 0xdf,
+]);
 // approve(address,uint256) -> bool.
 export const APPROVE_SELECTOR = new Uint8Array([0x09, 0x5e, 0xa7, 0xb3]);
 // Effectively-unlimited allowance (matches the contract's approveRouter, 2^128-1).
@@ -26,52 +29,71 @@ export const SWAP_GAS_LIMIT = 300_000n;
 export const SWAP_MAX_FEE_PER_GAS = 30_000_000_000n;
 export const SWAP_MAX_PRIORITY_FEE_PER_GAS = 1_000_000_000n;
 
-// The exactInputSingle result schema (must byte-match the contract's swapResponseSchema).
-export const SWAP_RESULT_SCHEMA = '[{"name":"amountOut","type":"uint256"}]';
-export const SWAP_SCHEMA_BYTES = SWAP_RESULT_SCHEMA.length;
+// exactOutputSingle returns amountIn (uint256); the MPC re-packs it as uint64 for the
+// attestation. Two schemas — must byte-match the contract's swapOutputSchema / swapRespondSchema.
+export const SWAP_OUTPUT_SCHEMA = '[{"name":"amountIn","type":"uint256"}]';
+export const SWAP_RESPOND_SCHEMA = '[{"name":"amountIn","type":"uint64"}]';
+export const SWAP_OUTPUT_SCHEMA_BYTES = SWAP_OUTPUT_SCHEMA.length;
+export const SWAP_RESPOND_SCHEMA_BYTES = SWAP_RESPOND_SCHEMA.length;
 
 // The contract-fixed routing of a swap event (the swap-schema variant of the vault routing).
 export const SWAP_MPC_ROUTING = {
   algo: MPCSignatureAlgorithm.ecdsa,
   dest: MPCDestination.unused,
   params: new Uint8Array(MPC_PARAMS_BYTES),
-  outputDeserializationSchema: asciiPadded(SWAP_RESULT_SCHEMA, SWAP_SCHEMA_BYTES),
-  respondSerializationSchema: asciiPadded(SWAP_RESULT_SCHEMA, SWAP_SCHEMA_BYTES),
+  outputDeserializationSchema: asciiPadded(
+    SWAP_OUTPUT_SCHEMA,
+    SWAP_OUTPUT_SCHEMA_BYTES,
+  ),
+  respondSerializationSchema: asciiPadded(
+    SWAP_RESPOND_SCHEMA,
+    SWAP_RESPOND_SCHEMA_BYTES,
+  ),
 };
 
 const QUOTER_ABI = [
-  'function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)',
+  'function quoteExactOutputSingle((address tokenIn,address tokenOut,uint256 amount,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountIn,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)',
 ];
 
 /** Whether the Uniswap router is deployed at `evmRpcUrl` (true on Sepolia + the fork). */
 export async function uniswapAvailable(evmRpcUrl: string): Promise<boolean> {
-  const code = await new JsonRpcProvider(evmRpcUrl).getCode(UNISWAP_SWAP_ROUTER_02);
+  const code = await new JsonRpcProvider(evmRpcUrl).getCode(
+    UNISWAP_SWAP_ROUTER_02,
+  );
   return code !== '0x';
 }
 
 /**
- * Live QuoterV2 quote for exactInputSingle (a read-only `eth_call`, no state change), plus
- * the `amountOutMin` after applying `slippageBps`. This is what the UI shows and what the
- * swap circuit binds as the on-chain slippage floor.
+ * Live QuoterV2 quote for exactOutputSingle (a read-only `eth_call`, no state change): the
+ * `amountIn` needed to receive `amountOut`, plus the `amountInMaximum` after applying
+ * `slippageBps` (headroom ABOVE the quote). This is what the UI shows and what the swap circuit
+ * binds as the on-chain slippage cap.
  */
-export async function quoteExactInputSingle(
+export async function quoteExactOutputSingle(
   evmRpcUrl: string,
   tokenIn: string,
   tokenOut: string,
   fee: bigint,
-  amountIn: bigint,
+  amountOut: bigint,
   slippageBps = 100n, // 1%
-): Promise<{ amountOut: bigint; amountOutMin: bigint }> {
-  const quoter = new EthersContract(UNISWAP_QUOTER_V2, QUOTER_ABI, new JsonRpcProvider(evmRpcUrl));
-  const [amountOut] = await quoter.getFunction('quoteExactInputSingle').staticCall({
-    tokenIn,
-    tokenOut,
-    amountIn,
-    fee,
-    sqrtPriceLimitX96: 0n,
-  });
-  const amountOutMin = (BigInt(amountOut) * (10_000n - slippageBps)) / 10_000n;
-  return { amountOut: BigInt(amountOut), amountOutMin };
+): Promise<{ amountIn: bigint; amountInMaximum: bigint }> {
+  const quoter = new EthersContract(
+    UNISWAP_QUOTER_V2,
+    QUOTER_ABI,
+    new JsonRpcProvider(evmRpcUrl),
+  );
+  const [amountIn] = await quoter
+    .getFunction('quoteExactOutputSingle')
+    .staticCall({
+      tokenIn,
+      tokenOut,
+      amount: amountOut,
+      fee,
+      sqrtPriceLimitX96: 0n,
+    });
+  const amountInMaximum =
+    (BigInt(amountIn) * (10_000n + slippageBps)) / 10_000n;
+  return { amountIn: BigInt(amountIn), amountInMaximum };
 }
 
 // The Uniswap V3 fee tiers, in bps*100 (0.01% / 0.05% / 0.3% / 1%). Different pairs live in
@@ -80,27 +102,43 @@ export async function quoteExactInputSingle(
 export const UNISWAP_FEE_TIERS = [100n, 500n, 3000n, 10000n];
 
 /**
- * Quote across every fee tier and return the best (a tier with no pool reverts, so it's
- * skipped). Returns the winning tier's `fee` so the swap binds the SAME pool the quote used.
- * `null` means no pool for this pair at any tier.
+ * Quote across every fee tier for a desired `amountOut` and return the CHEAPEST (lowest
+ * amountIn; a tier with no pool reverts, so it's skipped). Returns the winning tier's `fee` so
+ * the swap binds the SAME pool the quote used. `null` means no pool for this pair at any tier.
  */
 export async function quoteBestFee(
   evmRpcUrl: string,
   tokenIn: string,
   tokenOut: string,
-  amountIn: bigint,
+  amountOut: bigint,
   slippageBps = 100n,
-): Promise<{ amountOut: bigint; amountOutMin: bigint; fee: bigint } | null> {
+): Promise<{ amountIn: bigint; amountInMaximum: bigint; fee: bigint } | null> {
   const results = await Promise.allSettled(
     UNISWAP_FEE_TIERS.map(async fee => ({
       fee,
-      ...(await quoteExactInputSingle(evmRpcUrl, tokenIn, tokenOut, fee, amountIn, slippageBps)),
+      ...(await quoteExactOutputSingle(
+        evmRpcUrl,
+        tokenIn,
+        tokenOut,
+        fee,
+        amountOut,
+        slippageBps,
+      )),
     })),
   );
-  let best: { amountOut: bigint; amountOutMin: bigint; fee: bigint } | null = null;
+  let best: { amountIn: bigint; amountInMaximum: bigint; fee: bigint } | null =
+    null;
   for (const r of results) {
-    if (r.status === 'fulfilled' && r.value.amountOut > 0n && (!best || r.value.amountOut > best.amountOut)) {
-      best = { amountOut: r.value.amountOut, amountOutMin: r.value.amountOutMin, fee: r.value.fee };
+    if (
+      r.status === 'fulfilled' &&
+      r.value.amountIn > 0n &&
+      (!best || r.value.amountIn < best.amountIn)
+    ) {
+      best = {
+        amountIn: r.value.amountIn,
+        amountInMaximum: r.value.amountInMaximum,
+        fee: r.value.fee,
+      };
     }
   }
   return best;
@@ -111,7 +149,9 @@ export function pairKey(tokenA: string, tokenB: string): string {
   return [tokenA.toLowerCase(), tokenB.toLowerCase()].sort().join('|');
 }
 
-const FACTORY_ABI = ['function getPool(address,address,uint24) view returns (address)'];
+const FACTORY_ABI = [
+  'function getPool(address,address,uint24) view returns (address)',
+];
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /**
@@ -123,7 +163,11 @@ export async function discoverSwappablePairs(
   evmRpcUrl: string,
   tokens: string[],
 ): Promise<Set<string>> {
-  const factory = new EthersContract(UNISWAP_V3_FACTORY, FACTORY_ABI, new JsonRpcProvider(evmRpcUrl));
+  const factory = new EthersContract(
+    UNISWAP_V3_FACTORY,
+    FACTORY_ABI,
+    new JsonRpcProvider(evmRpcUrl),
+  );
   const getPool = factory.getFunction('getPool');
   const swappable = new Set<string>();
   const checks: Promise<void>[] = [];
@@ -157,5 +201,10 @@ export async function routerAllowance(
     ['function allowance(address,address) view returns (uint256)'],
     new JsonRpcProvider(evmRpcUrl),
   );
-  return BigInt(await token.getFunction('allowance')(vaultEvmAddress, UNISWAP_SWAP_ROUTER_02));
+  return BigInt(
+    await token.getFunction('allowance')(
+      vaultEvmAddress,
+      UNISWAP_SWAP_ROUTER_02,
+    ),
+  );
 }
