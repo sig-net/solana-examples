@@ -39,7 +39,7 @@ export function getStatusLabel(status: TxStatus): string {
     pending: 'Pending',
     balance_polling: 'Waiting for deposit',
     gas_topup_pending: 'Funding gas',
-    solana_pending: 'Processing on Solana',
+    solana_pending: 'Processing on-chain',
     signature_pending: 'Awaiting signature',
     ethereum_pending: 'Processing on Ethereum',
     completing: 'Finalizing',

@@ -7,8 +7,8 @@ export function EmptyStateWallet() {
   return (
     <EmptyState
       icon={Wallet}
-      title='Ethereum Assets in Solana Contracts'
-      description='Deposit ERC-20 tokens and your Solana program can call into Ethereum liquidity, markets, and assets'
+      title='Ethereum Assets in an ERC-20 Vault'
+      description='Deposit ERC-20 tokens and your program can call into Ethereum liquidity, markets, and assets'
       action={
         <>
           <div className='mb-12 flex justify-center'>

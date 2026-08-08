@@ -21,8 +21,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Solana Token Manager',
-  description: 'Manage your ERC20 tokens on Solana',
+  title: 'Token Manager',
+  description: 'Manage your ERC20 tokens on-chain',
 };
 
 export default function RootLayout({
