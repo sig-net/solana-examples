@@ -94,13 +94,21 @@ async function idbDelete(key: string): Promise<void> {
   });
 }
 
+// Where the ZK assets (keys/zkir/compiler) are served from. Defaults to the app origin (the
+// public/ folder in local dev), but the vault provers are 100-280 MB each — over Vercel's 100 MB
+// file cap — so in production they're hosted on object storage and NEXT_PUBLIC_ZK_CONFIG_ORIGIN
+// points the fetch there. The `/signet` assets live under the same origin.
+const ZK_ORIGIN =
+  process.env.NEXT_PUBLIC_ZK_CONFIG_ORIGIN ||
+  (typeof window !== 'undefined' ? window.location.origin : '');
+
 // Compiled-contract binding: generated Contract + witnesses + zk assets at the origin.
 const vaultCompiledContract: any = (CompiledContract.withCompiledFileAssets as any)(
   (CompiledContract.withWitnesses as any)(
     (CompiledContract.make as any)('erc20-vault', Contract as any),
     witnesses,
   ),
-  typeof window !== 'undefined' ? window.location.origin : '',
+  ZK_ORIGIN,
 );
 
 // Proving spans BOTH zk roots (vault + signet) — deposit/withdraw cross-call.
@@ -109,10 +117,9 @@ function buildProviders(
   cfg: MidnightNodeConfig,
   accountId: string,
 ) {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const zkOpts = { fetchFunc: fetch.bind(window) };
-  const vaultZk = new FetchZkConfigProvider<string>(origin, zkOpts);
-  const signetZk = new FetchZkConfigProvider<string>(`${origin}/signet`, zkOpts);
+  const vaultZk = new FetchZkConfigProvider<string>(ZK_ORIGIN, zkOpts);
+  const signetZk = new FetchZkConfigProvider<string>(`${ZK_ORIGIN}/signet`, zkOpts);
 
   return {
     privateStateProvider: levelPrivateStateProvider({
