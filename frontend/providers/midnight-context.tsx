@@ -11,8 +11,14 @@ import {
   type ReactNode,
 } from 'react';
 
+import { formatUnits } from 'viem';
+
 import { midnightEnv, midnightNetworkId } from '@/lib/midnight/env';
 import { MIDNIGHT_TOKENS } from '@/lib/constants/token-metadata';
+import {
+  midnightTxHistory,
+  type MidnightTxRecord,
+} from '@/lib/midnight/tx-history';
 import { ERC20_TRANSFER_GAS_LIMIT } from '@/lib/midnight/evm-envelope';
 import { SWAP_GAS_LIMIT } from '@/lib/midnight/evm-swap';
 import type { MidnightBalances } from '@/lib/midnight/vault-balances';
@@ -87,6 +93,21 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
 
   const append = (m: string) =>
     setLog(l => [...l, `${new Date().toLocaleTimeString()}  ${m}`]);
+
+  // Token symbol + decimals for the Activity records (decimals come from the synced balances,
+  // defaulting to 6 for the demo stablecoins before the first balance read).
+  const tokenMeta = (erc20: string) => {
+    const t = MIDNIGHT_TOKENS.find(
+      x => x.erc20Address.toLowerCase() === erc20.toLowerCase(),
+    );
+    const decimals = balances?.perToken?.[erc20.toLowerCase()]?.decimals ?? 6;
+    return { symbol: t?.symbol ?? 'ERC20', decimals };
+  };
+  const fmtAmount = (amount: bigint, erc20: string) => {
+    const { symbol, decimals } = tokenMeta(erc20);
+    return `${formatUnits(amount, decimals)} ${symbol}`;
+  };
+  const nowSec = () => Math.floor(Date.now() / 1000);
 
   const startWallet = () => {
     eagerWallet ??= (async () => {
@@ -182,7 +203,7 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         }
       }, 5000);
       setConnected(true);
-      append('Connected (Developer wallet)');
+      append('Connected (Developer wallet · Midnight)');
     } catch (e) {
       eagerWallet = null;
       append(`Error: ${(e as Error).message}`);
@@ -205,20 +226,59 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     const { runDeposit, runWithdraw } = await import('@/lib/midnight/vault');
     const { flow } = await import('@/lib/midnight/flow');
     flow.start(kind);
+    const amountStr = fmtAmount(amountUnits, erc20Address);
+    const { symbol } = tokenMeta(erc20Address);
+    // The Activity record is keyed by the request id (the deterministic on-chain id) — added when
+    // the request lands, patched with the real Sepolia tx hash once the MPC signs, so the row's
+    // explorer link is the actual EVM transfer.
+    let recordId: string | null = null;
+    const record = (
+      rid: string,
+      base: Omit<MidnightTxRecord, 'id' | 'status' | 'timestampRaw' | 'txHash'>,
+      evmTxHash?: string,
+    ) => {
+      if (recordId === rid) {
+        if (evmTxHash) midnightTxHistory.update(rid, { txHash: evmTxHash });
+        return;
+      }
+      recordId = rid;
+      midnightTxHistory.add({
+        id: rid,
+        ...base,
+        txHash: evmTxHash,
+        status: 'pending',
+        timestampRaw: nowSec(),
+      });
+    };
     try {
       if (kind === 'deposit') {
         append('Requesting gas top-up from relayer...');
         await topUpGas(depositAddress); // sweep is sent FROM the deposit address
-        await runDeposit(providers, vault, midnightEnv, identity, erc20Address, amountUnits, append);
+        await runDeposit(providers, vault, midnightEnv, identity, erc20Address, amountUnits, append, (rid, hash) =>
+          record(
+            rid,
+            { type: 'Deposit', fromSymbol: 'WALLET', fromAmount: depositAddress, toSymbol: symbol, toAmount: amountStr, counterparty: depositAddress },
+            hash,
+          ),
+        );
       } else {
         const hex = (receiver ?? '').trim().replace(/^0x/, '');
         const destHex = hex.length === 40 ? `0x${hex}` : DEAD_ADDRESS;
         append('Requesting gas top-up from relayer...');
         await topUpGas(vaultAddress); // payout is sent FROM the vault address
-        await runWithdraw(providers, vault, midnightEnv, identity, erc20Address, amountUnits, destHex, append);
+        await runWithdraw(providers, vault, midnightEnv, identity, erc20Address, amountUnits, destHex, append, () => topUpGas(vaultAddress), (rid, hash) =>
+          record(
+            rid,
+            { type: 'Withdraw', fromSymbol: symbol, fromAmount: amountStr, toSymbol: 'WALLET', toAmount: destHex, counterparty: destHex },
+            hash,
+          ),
+        );
       }
+      if (recordId)
+        midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
       await refresh();
     } catch (e) {
+      if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
       flow.fail((e as Error).message);
       throw e;
     }
@@ -241,12 +301,37 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     const { runSwap } = await import('@/lib/midnight/vault');
     const { flow } = await import('@/lib/midnight/flow');
     flow.start('swap');
+    let recordId: string | null = null;
+    const record = (rid: string, evmTxHash?: string) => {
+      if (recordId === rid) {
+        if (evmTxHash) midnightTxHistory.update(rid, { txHash: evmTxHash });
+        return;
+      }
+      recordId = rid;
+      midnightTxHistory.add({
+        id: rid,
+        type: 'Swap',
+        fromSymbol: tokenMeta(tokenInErc20).symbol,
+        fromAmount: fmtAmount(amountUnits, tokenInErc20),
+        toSymbol: tokenMeta(tokenOutErc20).symbol,
+        toAmount: '',
+        txHash: evmTxHash,
+        status: 'pending',
+        timestampRaw: nowSec(),
+      });
+    };
     try {
       append('Requesting gas top-up from relayer...');
       await topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT);
-      await runSwap(providers, vault, midnightEnv, identity, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps);
+      await runSwap(providers, vault, midnightEnv, identity, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps,
+        () => topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT),
+        (rid, hash) => record(rid, hash),
+      );
+      if (recordId)
+        midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
       await refresh();
     } catch (e) {
+      if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
       flow.fail((e as Error).message);
       throw e;
     }
@@ -267,7 +352,8 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         disconnect: reset,
         deposit: (erc20, amount) => runFlow('deposit', erc20, amount),
         withdraw: (erc20, amount, receiver) => runFlow('withdraw', erc20, amount, receiver),
-        swap: (tokenIn, tokenOut, amount) => runSwapFlow(tokenIn, tokenOut, amount),
+        swap: (tokenIn, tokenOut, amount, fee, slippageBps) =>
+          runSwapFlow(tokenIn, tokenOut, amount, fee, slippageBps),
         refresh,
       }}
     >

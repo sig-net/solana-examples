@@ -16,10 +16,11 @@ import {
   bytesToHex,
   stripHexPrefix,
   toSignBidirectionalEventIndex,
-  calculateSignetAttestationDigest,
+  deriveMidnightResponseKey,
   deserializeEvmOutput,
   serializeRespondOutput,
   signBidirectionalEventToSignedEvmTransaction,
+  signetEventSourceFromPublicDataProvider,
   SignetRequestResponseReader,
   SIGNET_DEFAULT_KEY_VERSION,
   PATH_BYTES,
@@ -55,7 +56,7 @@ import {
   SWAP_OUTPUT_SCHEMA,
   SWAP_RESPOND_SCHEMA,
   UNISWAP_SWAP_ROUTER_02,
-  quoteExactOutputSingle,
+  quoteExactInputSingle,
   routerAllowance,
 } from './evm-swap';
 
@@ -154,9 +155,14 @@ function responseReader(
 ): SignetRequestResponseReader {
   return new SignetRequestResponseReader({
     requesterContractAddress: env.contractAddress,
-    requesterRequestsIndexField: indexField,
+    // 0.19: the reader locates the request by ledger-tree PATH, not a field index.
+    // deposit/withdraw live at field 0 (path [0]), swaps at field 11 (path [11]).
+    requesterRequestsPath: [indexField],
     signetContractAddress: env.signetContractAddress,
     publicDataProvider: providers.publicDataProvider,
+    // 0.19: the MPC's responses are read from the signet contract's emitted
+    // events, adapted from the same public data provider.
+    eventSource: signetEventSourceFromPublicDataProvider(providers.publicDataProvider),
   } as any);
 }
 
@@ -329,30 +335,56 @@ async function pollSignatureResponse(
   throw new Error(`timed out waiting for signature response to ${requestId}`);
 }
 
-// Broadcast the MPC-signed EVM tx (idempotent across retries).
-async function broadcastEvm(env: Env, tx: Transaction): Promise<void> {
+// Broadcast the MPC-signed EVM tx (idempotent across retries). In a settle flow a revert is a
+// valid outcome — the MPC attests the failure and the caller refunds (swap/withdraw) or surfaces
+// it (deposit) — so `throwOnRevert` is false there. Sign-only flows (router approval) have no
+// attestation to fall back on, so a revert there is fatal.
+//
+// The signed tx is deterministic, so broadcasting is idempotent and retryable. A settle flow has
+// already BURNED the surrendered coin, so a failed broadcast must not strand it: there is no
+// failure attestation for a tx that never reached the chain (the MPC waits on-chain), so the only
+// recovery is to land THIS tx. `ensureGas` re-runs the gas top-up between attempts, so an
+// under-funded account ("insufficient funds") is refilled and the same signed tx re-broadcast.
+async function broadcastEvm(
+  env: Env,
+  tx: Transaction,
+  opts: { throwOnRevert?: boolean; ensureGas?: () => Promise<void> } = {},
+): Promise<void> {
+  const { throwOnRevert = true, ensureGas } = opts;
   const provider = new JsonRpcProvider(env.evmRpcUrl);
   const { hash } = tx;
   if (!hash) throw new Error('signed tx missing hash');
   const mined = await provider.getTransactionReceipt(hash);
   if (mined) {
-    if (mined.status === 0) throw new Error(`sweep ${hash} reverted`);
+    if (mined.status === 0 && throwOnRevert)
+      throw new Error(`sweep ${hash} reverted`);
     return;
   }
-  try {
-    await provider.broadcastTransaction(tx.serialized);
-  } catch (e: any) {
-    const msg = String(e?.message ?? '').toLowerCase();
-    if (
-      e?.code !== 'NONCE_EXPIRED' &&
-      !msg.includes('already known') &&
-      !msg.includes('nonce too low')
-    )
-      throw e;
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await provider.broadcastTransaction(tx.serialized);
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message ?? '').toLowerCase();
+      // Already in the mempool (or mined by a prior attempt) — proceed to await the receipt.
+      if (
+        e?.code === 'NONCE_EXPIRED' ||
+        msg.includes('already known') ||
+        msg.includes('nonce too low')
+      )
+        break;
+      if (attempt >= MAX_ATTEMPTS) throw e;
+      // Under-funded gas: refill and re-broadcast the same signed tx. Other transient RPC
+      // failures: back off and retry.
+      if (msg.includes('insufficient funds') && ensureGas) await ensureGas();
+      await sleep(2000);
+    }
   }
   const receipt = await provider.waitForTransaction(hash, 1, 3 * MINUTE);
   if (!receipt) throw new Error(`sweep ${hash} not confirmed`);
-  if (receipt.status === 0) throw new Error(`sweep ${hash} reverted`);
+  if (receipt.status === 0 && throwOnRevert)
+    throw new Error(`sweep ${hash} reverted`);
 }
 
 // Stage 2: match the MPC's attestation digest against the recomputed serialized output.
@@ -365,24 +397,27 @@ async function fetchAttestedRespondOutcome(
   schema: string = RESULT_SCHEMA,
   respondSchema: string = schema,
 ): Promise<any | undefined> {
-  const events = await responseReader(
-    providers,
-    env,
-    indexField,
-  ).getRespondBidirectionalEvents(requestId);
-  if (events.length === 0) return undefined;
+  const reader = responseReader(providers, env, indexField);
+  // The MPC response key the vault pinned at deploy (sender-scoped: derived from
+  // the MPC root pubkey + this vault's address). getVerifiedRespondBidirectionalEvent
+  // authenticates each candidate's signature against it — the 0.19 event carries only
+  // the signature, not a digest, so matching is by verifying, not by comparing digests.
+  const mpcResponseKey = deriveMidnightResponseKey(
+    env.mpcSecpPub,
+    env.contractAddress,
+  );
   let cached: any;
   try {
     cached = await fetchFakenetResponse(env, requestId);
   } catch {
-    return undefined;
+    cached = undefined;
   }
   const candidates: { serializedOutput: Uint8Array; isFailure: boolean }[] = [];
   // The transfer schema decodes a bool; the swap OUTPUT schema a uint256 amountIn. The MPC
   // re-packs against `respondSchema` (equal to `schema` for the symmetric transfer case, but a
   // narrower uint64 for swap). decodedValue is what a success settle reads (the bool, or amountIn).
   let decodedValue: any;
-  if (cached.success && cached.output != null) {
+  if (cached?.success && cached.output != null) {
     try {
       const decoded: any = deserializeEvmOutput(schema as any, cached.output);
       decodedValue = decoded;
@@ -395,13 +430,14 @@ async function fetchAttestedRespondOutcome(
     }
   }
   candidates.push({ serializedOutput: MPC_FAILURE_OUTPUT, isFailure: true });
+  // Only the candidate the MPC actually attested has a signature that verifies, so the
+  // first verifying candidate is the genuine outcome. An undefined return means the post
+  // is not up yet (or attests neither candidate) — the caller polls again.
   for (const c of candidates) {
-    const digest = calculateSignetAttestationDigest(
-      requestIdBytes(requestId),
+    const event = await reader.getVerifiedRespondBidirectionalEvent(
+      requestId,
       c.serializedOutput,
-    );
-    const event = (events as any[]).find(e =>
-      Buffer.from(e.attestationDigest).equals(Buffer.from(digest)),
+      mpcResponseKey,
     );
     if (event) {
       return {
@@ -430,6 +466,7 @@ async function settleViaMpc(
   indexField: number = VAULT_REQUESTS_INDEX_FIELD,
   schema: string = RESULT_SCHEMA,
   respondSchema: string = schema,
+  ensureGas?: () => Promise<void>,
 ): Promise<any> {
   flow.set('settling');
   log('Waiting for MPC signature + settling on Sepolia...');
@@ -441,7 +478,11 @@ async function settleViaMpc(
     log,
     indexField,
   );
-  await broadcastEvm(env, signed);
+  // A revert is not fatal here: the MPC attests the failed execution and the caller refunds
+  // (swap/withdraw) or reports it (deposit). Let it settle, then read the attestation below.
+  // ensureGas re-runs the top-up between broadcast retries so an under-funded account never
+  // strands the already-burned coin (there is no failure attestation for a never-sent tx).
+  await broadcastEvm(env, signed, { throwOnRevert: false, ensureGas });
   const end = Date.now() + 6 * MINUTE;
   while (Date.now() < end) {
     const outcome = await fetchAttestedRespondOutcome(
@@ -452,7 +493,7 @@ async function settleViaMpc(
       schema,
       respondSchema,
     );
-    if (outcome) return outcome;
+    if (outcome) return { ...outcome, evmTxHash: signed.hash ?? undefined };
     await sleep(1000);
   }
   throw new Error(
@@ -469,6 +510,7 @@ export async function runDeposit(
   erc20Hex: string,
   amount: bigint,
   log: (m: string) => void,
+  onRecord?: (rid: RequestIdHex, evmTxHash?: string) => void,
 ) {
   flow.start('deposit');
   const erc20 = addrBytes(erc20Hex);
@@ -503,8 +545,10 @@ export async function runDeposit(
     },
   );
   await assertRequestOnLedger(providers, env, rid, 'deposit');
+  onRecord?.(rid);
 
   const outcome = await settleViaMpc(providers, env, rid, userEvm, log);
+  onRecord?.(rid, outcome.evmTxHash);
   if (!outcome.succeeded)
     throw new Error(`MPC attested deposit ${rid} as FAILED`);
 
@@ -539,6 +583,8 @@ export async function runWithdraw(
   amount: bigint,
   destHex: string,
   log: (m: string) => void,
+  ensureGas?: () => Promise<void>,
+  onRecord?: (rid: RequestIdHex, evmTxHash?: string) => void,
 ) {
   flow.start('withdraw');
   const erc20 = addrBytes(erc20Hex);
@@ -574,11 +620,23 @@ export async function runWithdraw(
     coin,
   );
   await assertRequestOnLedger(providers, env, rid, 'withdraw');
+  onRecord?.(rid);
 
-  const outcome = await settleViaMpc(providers, env, rid, vaultEvm, log);
+  const outcome = await settleViaMpc(
+    providers,
+    env,
+    rid,
+    vaultEvm,
+    log,
+    VAULT_REQUESTS_INDEX_FIELD,
+    RESULT_SCHEMA,
+    RESULT_SCHEMA,
+    ensureGas,
+  );
+  onRecord?.(rid, outcome.evmTxHash);
 
-  flow.set('claim-proving');
   if (outcome.matchedFailureOutput) {
+    flow.set('refunding');
     log('EVM transfer never executed — refunding...');
     // refundWithdraw + refundSwap are merged into one `refund` circuit; it routes on which
     // pending-marker map holds the id (refundCommitment here).
@@ -588,21 +646,20 @@ export async function runWithdraw(
       outcome.serializedOutput,
       rand32(),
     );
-  } else {
-    log('Settling completeWithdraw...');
-    await vault.callTx.completeWithdraw(
-      requestIdBytes(rid),
-      outcome.event,
-      outcome.serializedOutput,
-      rand32(),
-    );
+    flow.finishRefunded();
+    log('Withdraw settled (refunded).');
+    return;
   }
-  flow.set('done');
-  log(
-    outcome.succeeded
-      ? 'Withdraw finalized (success).'
-      : 'Withdraw settled (refunded).',
+  flow.set('claim-proving');
+  log('Settling completeWithdraw...');
+  await vault.callTx.completeWithdraw(
+    requestIdBytes(rid),
+    outcome.event,
+    outcome.serializedOutput,
+    rand32(),
   );
+  flow.set('done');
+  log('Withdraw finalized (success).');
 }
 
 async function evmNonce(env: Env, address: string): Promise<bigint> {
@@ -675,10 +732,12 @@ export async function runSwap(
   identity: Identity,
   tokenInHex: string,
   tokenOutHex: string,
-  amountOut: bigint,
+  amountInMaximum: bigint,
   log: (m: string) => void,
   fee = 500n,
   slippageBps = 100n,
+  ensureGas?: () => Promise<void>,
+  onRecord?: (rid: RequestIdHex, evmTxHash?: string) => void,
 ) {
   flow.start('swap');
   const tokenIn = addrBytes(tokenInHex);
@@ -689,17 +748,20 @@ export async function runSwap(
   flow.set('preparing');
   await ensureRouterApproved(providers, vault, env, tokenInHex, log);
 
-  // 2. Live QuoterV2 quote at the chosen fee tier -> amountInMaximum, the on-chain slippage cap.
-  const { amountIn: quoted, amountInMaximum } = await quoteExactOutputSingle(
+  // 2. Normal-swap UX, exactOutput on-chain: the user picked the SPEND (amountInMaximum). Quote
+  // exactInput to see what it buys, then target amountOut = expected * (1 - slippage) as the
+  // guaranteed receive. The swap spends up to amountInMaximum for that output and refunds change.
+  const { amountOut: expectedOut } = await quoteExactInputSingle(
     env.evmRpcUrl,
     tokenInHex,
     tokenOutHex,
     fee,
-    amountOut,
-    slippageBps,
+    amountInMaximum,
   );
+  const amountOut = (expectedOut * (10_000n - slippageBps)) / 10_000n;
+  if (amountOut <= 0n) throw new Error('swap amount too small to quote an output');
   log(
-    `Quote: ~${quoted} in -> ${amountOut} out (max ${amountInMaximum}, fee ${fee})`,
+    `Quote: ${amountInMaximum} in -> ~${expectedOut} out (min ${amountOut}, fee ${fee})`,
   );
 
   // 3. swap(): surrender (burn) amountInMaximum of the tokenIn vault coin, record the
@@ -743,6 +805,7 @@ export async function runSwap(
     coin,
   );
   await assertSwapRequestOnLedger(providers, env, rid);
+  onRecord?.(rid);
 
   // 4. MPC signs the swap with the vault account, broadcasts, attests (field 11 + swap schemas:
   // decode the uint256 amountIn, verify against the uint64-packed respond output).
@@ -755,12 +818,14 @@ export async function runSwap(
     VAULT_SWAP_REQUESTS_INDEX_FIELD,
     SWAP_OUTPUT_SCHEMA,
     SWAP_RESPOND_SCHEMA,
+    ensureGas,
   );
+  onRecord?.(rid, outcome.evmTxHash);
 
   // 5. Settle: completeSwap mints the exact amountOut of tokenOut plus the unspent tokenIn as
   // change, or refund re-mints amountInMaximum if the EVM swap never executed.
-  flow.set('claim-proving');
   if (outcome.matchedFailureOutput) {
+    flow.set('refunding');
     log('Swap did not execute on EVM — refunding tokenIn...');
     await vault.callTx.refund(
       requestIdBytes(rid),
@@ -768,10 +833,11 @@ export async function runSwap(
       outcome.serializedOutput,
       rand32(),
     );
-    flow.set('done');
+    flow.finishRefunded();
     log('Swap refunded (did not execute).');
     return;
   }
+  flow.set('claim-proving');
   log('Settling completeSwap (minting shielded tokenOut + change)...');
   await vault.callTx.completeSwap(
     requestIdBytes(rid),

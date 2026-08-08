@@ -24,8 +24,9 @@ export const APPROVE_SELECTOR = new Uint8Array([0x09, 0x5e, 0xa7, 0xb3]);
 // Effectively-unlimited allowance (matches the contract's approveRouter, 2^128-1).
 export const MAX_APPROVE = 340282366920938463463374607431768211455n;
 
-// A V3 single-hop swap is ~120-200k gas; the contract fixes this envelope (vault pays).
-export const SWAP_GAS_LIMIT = 300_000n;
+// A V3 single-hop swap is ~120-200k gas, but an exact-output swap across a thin/fragmented pool
+// crosses many ticks, so the cap has headroom. Must match the contract's fixed swap gas envelope.
+export const SWAP_GAS_LIMIT = 700_000n;
 export const SWAP_MAX_FEE_PER_GAS = 30_000_000_000n;
 export const SWAP_MAX_PRIORITY_FEE_PER_GAS = 1_000_000_000n;
 
@@ -53,6 +54,7 @@ export const SWAP_MPC_ROUTING = {
 
 const QUOTER_ABI = [
   'function quoteExactOutputSingle((address tokenIn,address tokenOut,uint256 amount,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountIn,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)',
+  'function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96)) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)',
 ];
 
 /** Whether the Uniswap router is deployed at `evmRpcUrl` (true on Sepolia + the fork). */
@@ -139,6 +141,65 @@ export async function quoteBestFee(
         amountInMaximum: r.value.amountInMaximum,
         fee: r.value.fee,
       };
+    }
+  }
+  return best;
+}
+
+/**
+ * Live QuoterV2 quote for exactInputSingle (read-only `eth_call`): the `amountOut` a swap of
+ * `amountIn` would yield at `fee`. Drives the normal swap UX — the user types the spend, we show
+ * the expected receive — while the on-chain swap stays exactOutput (see `quoteBestFeeExactInput`).
+ */
+export async function quoteExactInputSingle(
+  evmRpcUrl: string,
+  tokenIn: string,
+  tokenOut: string,
+  fee: bigint,
+  amountIn: bigint,
+): Promise<{ amountOut: bigint }> {
+  const quoter = new EthersContract(
+    UNISWAP_QUOTER_V2,
+    QUOTER_ABI,
+    new JsonRpcProvider(evmRpcUrl),
+  );
+  const [amountOut] = await quoter
+    .getFunction('quoteExactInputSingle')
+    .staticCall({
+      tokenIn,
+      tokenOut,
+      amountIn,
+      fee,
+      sqrtPriceLimitX96: 0n,
+    });
+  return { amountOut: BigInt(amountOut) };
+}
+
+/**
+ * Quote a desired `amountIn` (the spend) across every fee tier and return the tier giving the
+ * BEST (highest) `amountOut` — the pool the swap should use. `null` means no pool for this pair at
+ * any tier. The caller applies slippage to `amountOut` to derive the exactOutput target.
+ */
+export async function quoteBestFeeExactInput(
+  evmRpcUrl: string,
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: bigint,
+): Promise<{ amountOut: bigint; fee: bigint } | null> {
+  const results = await Promise.allSettled(
+    UNISWAP_FEE_TIERS.map(async fee => ({
+      fee,
+      ...(await quoteExactInputSingle(evmRpcUrl, tokenIn, tokenOut, fee, amountIn)),
+    })),
+  );
+  let best: { amountOut: bigint; fee: bigint } | null = null;
+  for (const r of results) {
+    if (
+      r.status === 'fulfilled' &&
+      r.value.amountOut > 0n &&
+      (!best || r.value.amountOut > best.amountOut)
+    ) {
+      best = { amountOut: r.value.amountOut, fee: r.value.fee };
     }
   }
   return best;

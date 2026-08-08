@@ -14,7 +14,12 @@ export function MidnightProgressToaster() {
 
   useEffect(() => {
     const onState = (s: FlowState) => {
-      const kind = s.kind === 'withdraw' ? 'Withdrawal' : 'Deposit';
+      const kind =
+        s.kind === 'withdraw'
+          ? 'Withdrawal'
+          : s.kind === 'swap'
+            ? 'Swap'
+            : 'Deposit';
 
       if (s.error) {
         prevPhase.current = null;
@@ -27,10 +32,18 @@ export function MidnightProgressToaster() {
       }
       if (s.phase === 'done') {
         prevPhase.current = null;
+        if (s.refunded) {
+          toast.warning(`${kind} didn't execute on-chain — tokens refunded`, {
+            id: TOAST_ID,
+          });
+          return;
+        }
         toast.success(
           s.kind === 'withdraw'
             ? 'Withdrawal complete'
-            : 'Deposit complete — shielded token minted',
+            : s.kind === 'swap'
+              ? 'Swap complete — shielded token minted'
+              : 'Deposit complete — shielded token minted',
           { id: TOAST_ID },
         );
         return;
