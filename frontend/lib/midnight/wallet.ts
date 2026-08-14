@@ -149,6 +149,7 @@ export interface WalletHandle {
   identitySecret: Uint8Array;
   facade: WalletFacade;
   keys: AccountKeys;
+  recheckpoint: () => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -240,17 +241,23 @@ export async function initializeWallet(
   }
   log('Wallet synced.');
 
-  // Checkpoint for the next load (best-effort).
-  try {
-    const [sh, un, du] = await Promise.all([
-      (facade as any).shielded.serializeState(),
-      (facade as any).unshielded.serializeState(),
-      (facade as any).dust.serializeState(),
-    ]);
-    await idbSet(cacheKey, { shielded: sh, unshielded: un, dust: du });
-  } catch {
-    /* cache is best-effort */
-  }
+  // Serialize the live facade state to the checkpoint. Runs at first sync and again after every
+  // transaction (via the handle's recheckpoint), so a restored checkpoint stays close to the chain
+  // tip: a far-behind checkpoint mis-reconciles already-spent dust and the node rejects the next
+  // transaction as DustDoubleSpend.
+  const writeCheckpoint = async () => {
+    try {
+      const [sh, un, du] = await Promise.all([
+        (facade as any).shielded.serializeState(),
+        (facade as any).unshielded.serializeState(),
+        (facade as any).dust.serializeState(),
+      ]);
+      await idbSet(cacheKey, { shielded: sh, unshielded: un, dust: du });
+    } catch {
+      /* cache is best-effort */
+    }
+  };
+  await writeCheckpoint();
 
   // state.shielded.address is an object — bech32-encode for display.
   let shieldedAddress = '';
@@ -301,6 +308,16 @@ export async function initializeWallet(
     identitySecret: await identityFromSeed(seed),
     facade,
     keys,
+    // Re-write the checkpoint after a transaction, syncing to the tip first so the stored state
+    // reflects the just-spent dust. Best-effort: a failed sync keeps the last checkpoint.
+    recheckpoint: async () => {
+      try {
+        await withTimeout(facade.waitForSyncedState(), CACHED_SYNC_TIMEOUT_MS, 'recheckpoint sync');
+      } catch {
+        /* proceed with the latest applied state */
+      }
+      await writeCheckpoint();
+    },
     stop: async () => {
       try {
         await (facade as any).stop?.();
@@ -309,6 +326,17 @@ export async function initializeWallet(
       }
     },
   };
+}
+
+// Drop the entire wallet-state checkpoint store so the next initializeWallet syncs from scratch.
+// Used to recover from a checkpoint that has drifted behind the chain (stale-dust rejections).
+export async function clearWalletCache(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(IDB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+    req.onblocked = () => resolve();
+  });
 }
 
 // Join the deployed vault with the identity secret as private state.

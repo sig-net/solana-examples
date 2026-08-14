@@ -61,6 +61,22 @@ const forwardLog = (m: string) => onWalletLog?.(m);
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const MIDNIGHT_ERC20S = MIDNIGHT_TOKENS.map(t => t.erc20Address);
 
+// Node rejection codes that mean the wallet's local view is behind the chain: 196 DustDoubleSpend,
+// 195 InputNotInUtxos, 171 OutOfDustValidityWindow. They surface as `Custom error: <code>` deep in
+// the submission error's cause chain. Recovery is a full resync, not a code fix.
+const STALE_STATE_ERROR_CODES = ['196', '195', '171'];
+function isStaleStateError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cur: any = error;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const msg = String(cur.message ?? cur);
+    if (STALE_STATE_ERROR_CODES.some(code => msg.includes(`Custom error: ${code}`))) return true;
+    cur = cur.cause;
+  }
+  return false;
+}
+
 // Relayer funds the gas of the address sending the MPC-signed transfer (parity with the
 // Solana bridge's top-up), so the user never hand-funds ETH.
 async function topUpGas(fromAddress: string, gasLimit?: bigint): Promise<void> {
@@ -163,28 +179,61 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     setBalances(null);
   };
 
+  // Wire a freshly-synced wallet handle into the refs: providers, persisted identity private
+  // state, derived identity, and the joined vault contract. Shared by connect and rebuildWallet.
+  const bindWallet = async (handle: any) => {
+    const { joinVault, VAULT_PRIVATE_STATE_ID } = await import('@/lib/midnight/wallet');
+    const { deriveIdentity } = await import('@/lib/midnight/vault');
+    providersRef.current = handle.providers;
+    walletRef.current = handle;
+    await handle.providers.privateStateProvider.setContractAddress(midnightEnv.contractAddress);
+    await handle.providers.privateStateProvider.set(VAULT_PRIVATE_STATE_ID, {
+      secretKey: handle.identitySecret,
+    });
+    const identity = deriveIdentity(handle.identitySecret);
+    identityRef.current = identity;
+    vaultRef.current = await joinVault(handle.providers, midnightEnv.contractAddress, handle.identitySecret);
+    return identity;
+  };
+
+  // Recover from a stale-state rejection: tear down the wallet, drop the drifted checkpoint, and
+  // full-resync a fresh handle bound to the same refs.
+  const rebuildWallet = async () => {
+    append('Wallet state drifted behind the chain — resyncing from scratch...');
+    try {
+      walletRef.current?.stop?.();
+    } catch {
+      /* ignore */
+    }
+    eagerWallet = null;
+    const { clearWalletCache } = await import('@/lib/midnight/wallet');
+    await clearWalletCache();
+    const handle = await startWallet();
+    await bindWallet(handle);
+  };
+
+  // Run a transaction flow; on a stale-state rejection, resync the wallet and retry it once. The
+  // op reads the refs at call time so the retry runs against the rebuilt wallet.
+  const withStaleStateRecovery = async <T,>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (e) {
+      if (!isStaleStateError(e)) throw e;
+      await rebuildWallet();
+      return await op();
+    }
+  };
+
   const connect = async () => {
     if (connecting || connected) return;
     setConnecting(true);
     try {
-      const { joinVault, VAULT_PRIVATE_STATE_ID } = await import('@/lib/midnight/wallet');
-      const { deriveIdentity, depositAddress: depAddr, vaultAddress: vAddr } =
+      const { depositAddress: depAddr, vaultAddress: vAddr } =
         await import('@/lib/midnight/vault');
 
       const handle = await startWallet();
-      providersRef.current = handle.providers;
-      walletRef.current = handle;
       setShieldedAddress(handle.shielded.shieldedAddress);
-
-      // Persist the deterministic identity so joinVault uses it.
-      await handle.providers.privateStateProvider.setContractAddress(midnightEnv.contractAddress);
-      await handle.providers.privateStateProvider.set(VAULT_PRIVATE_STATE_ID, {
-        secretKey: handle.identitySecret,
-      });
-
-      const identity = deriveIdentity(handle.identitySecret);
-      identityRef.current = identity;
-      vaultRef.current = await joinVault(handle.providers, midnightEnv.contractAddress, handle.identitySecret);
+      const identity = await bindWallet(handle);
 
       const dAddr = depAddr(midnightEnv, identity);
       const vaddr = vAddr(midnightEnv);
@@ -254,11 +303,13 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
       if (kind === 'deposit') {
         append('Requesting gas top-up from relayer...');
         await topUpGas(depositAddress); // sweep is sent FROM the deposit address
-        await runDeposit(providers, vault, midnightEnv, identity, erc20Address, amountUnits, append, (rid, hash) =>
-          record(
-            rid,
-            { type: 'Deposit', fromSymbol: 'WALLET', fromAmount: depositAddress, toSymbol: symbol, toAmount: amountStr, counterparty: depositAddress },
-            hash,
+        await withStaleStateRecovery(() =>
+          runDeposit(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, erc20Address, amountUnits, append, (rid, hash) =>
+            record(
+              rid,
+              { type: 'Deposit', fromSymbol: 'WALLET', fromAmount: depositAddress, toSymbol: symbol, toAmount: amountStr, counterparty: depositAddress },
+              hash,
+            ),
           ),
         );
       } else {
@@ -266,17 +317,20 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         const destHex = hex.length === 40 ? `0x${hex}` : DEAD_ADDRESS;
         append('Requesting gas top-up from relayer...');
         await topUpGas(vaultAddress); // payout is sent FROM the vault address
-        await runWithdraw(providers, vault, midnightEnv, identity, erc20Address, amountUnits, destHex, append, () => topUpGas(vaultAddress), (rid, hash) =>
-          record(
-            rid,
-            { type: 'Withdraw', fromSymbol: symbol, fromAmount: amountStr, toSymbol: 'WALLET', toAmount: destHex, counterparty: destHex },
-            hash,
+        await withStaleStateRecovery(() =>
+          runWithdraw(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, erc20Address, amountUnits, destHex, append, () => topUpGas(vaultAddress), (rid, hash) =>
+            record(
+              rid,
+              { type: 'Withdraw', fromSymbol: symbol, fromAmount: amountStr, toSymbol: 'WALLET', toAmount: destHex, counterparty: destHex },
+              hash,
+            ),
           ),
         );
       }
       if (recordId)
         midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
       await refresh();
+      await walletRef.current?.recheckpoint?.();
     } catch (e) {
       if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
       flow.fail((e as Error).message);
@@ -323,13 +377,16 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     try {
       append('Requesting gas top-up from relayer...');
       await topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT);
-      await runSwap(providers, vault, midnightEnv, identity, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps,
-        () => topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT),
-        (rid, hash) => record(rid, hash),
+      await withStaleStateRecovery(() =>
+        runSwap(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps,
+          () => topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT),
+          (rid, hash) => record(rid, hash),
+        ),
       );
       if (recordId)
         midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
       await refresh();
+      await walletRef.current?.recheckpoint?.();
     } catch (e) {
       if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
       flow.fail((e as Error).message);
