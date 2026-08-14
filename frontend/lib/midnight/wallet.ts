@@ -152,9 +152,26 @@ export interface WalletHandle {
   stop: () => Promise<void>;
 }
 
+// A cached checkpoint from a chain that was reset (new genesis) resumes without error but never
+// finishes syncing, so waitForSyncedState hangs at "connecting to indexer…". Bound the cached
+// resume with this timeout so a stalled checkpoint falls through to a from-scratch resync.
+const CACHED_SYNC_TIMEOUT_MS = 45_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 // Build + start + sync the facade, then assemble the provider set around it. Restores
 // from the cached checkpoint when present (delta sync); falls back to a full resync if
-// the cached state is rejected. Reports sync progress via `onProgress`.
+// the cached state is rejected or a reset chain stalls it. Reports sync progress via `onProgress`.
 export async function initializeWallet(
   networkId: string,
   log: (m: string) => void,
@@ -204,10 +221,19 @@ export async function initializeWallet(
   try {
     log(cached ? 'Resuming wallet from cached state…' : 'Starting the in-app wallet (syncing to the node)…');
     facade = await startFacade(cached);
-    state = await facade.waitForSyncedState();
+    // A stale checkpoint (e.g. after a chain reset) resumes without throwing but never syncs, so
+    // bound the cached wait; a fresh start has no checkpoint to stall on and waits normally.
+    state = cached
+      ? await withTimeout(facade.waitForSyncedState(), CACHED_SYNC_TIMEOUT_MS, 'cached wallet sync')
+      : await facade.waitForSyncedState();
   } catch (e) {
     if (!cached) throw e;
-    log('Cached wallet state rejected — resyncing from scratch…');
+    log('Cached wallet state rejected or stalled — resyncing from scratch…');
+    try {
+      await (facade! as unknown as { stop?: () => Promise<void> })?.stop?.();
+    } catch {
+      /* best-effort: drop the stalled facade before resyncing */
+    }
     await idbDelete(cacheKey);
     facade = await startFacade();
     state = await facade.waitForSyncedState();
