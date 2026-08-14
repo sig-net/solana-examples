@@ -155,7 +155,7 @@ export interface WalletHandle {
 // A cached checkpoint from a chain that was reset (new genesis) resumes without error but never
 // finishes syncing, so waitForSyncedState hangs at "connecting to indexer…". Bound the cached
 // resume with this timeout so a stalled checkpoint falls through to a from-scratch resync.
-const CACHED_SYNC_TIMEOUT_MS = 45_000;
+const CACHED_SYNC_TIMEOUT_MS = 20_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
