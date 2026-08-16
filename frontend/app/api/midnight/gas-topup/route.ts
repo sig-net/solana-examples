@@ -22,7 +22,7 @@ const TOPUP_MAX_FEE_WITH_MARGIN = (ERC20_TRANSFER_MAX_FEE_PER_GAS * 110n) / 100n
 // bridge's automatic gas top-up. The Midnight-chain txs (deposit/claim) stay client-side.
 export async function POST(request: NextRequest) {
   try {
-    const { fromAddress } = await request.json();
+    const { fromAddress, gasLimit } = await request.json();
 
     if (!fromAddress) {
       return NextResponse.json(
@@ -31,13 +31,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A transfer/approve reserves the fixed envelope; a swap needs more (a V3 swap is
+    // ~300k), so the caller may request a larger gasLimit. Defaults to the transfer envelope.
+    const limit = gasLimit ? BigInt(gasLimit) : ERC20_TRANSFER_GAS_LIMIT;
+
     const client = getEthereumProvider();
     // Fund fromAddress so its balance >= gasLimit * maxFeePerGas (the vault tx's upfront
     // EIP-1559 reservation), with a 10% margin.
     const { topUpTxHash, topUpAmount } = await ensureGasForTransaction(
       client,
       fromAddress as Hex,
-      ERC20_TRANSFER_GAS_LIMIT,
+      limit,
       TOPUP_MAX_FEE_WITH_MARGIN,
     );
 

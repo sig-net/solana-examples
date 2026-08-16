@@ -94,13 +94,21 @@ async function idbDelete(key: string): Promise<void> {
   });
 }
 
+// Where the ZK assets (keys/zkir/compiler) are served from. Defaults to the app origin (the
+// public/ folder in local dev), but the vault provers are 100-280 MB each — over Vercel's 100 MB
+// file cap — so in production they're hosted on object storage and NEXT_PUBLIC_ZK_CONFIG_ORIGIN
+// points the fetch there. The `/signet` assets live under the same origin.
+const ZK_ORIGIN =
+  process.env.NEXT_PUBLIC_ZK_CONFIG_ORIGIN ||
+  (typeof window !== 'undefined' ? window.location.origin : '');
+
 // Compiled-contract binding: generated Contract + witnesses + zk assets at the origin.
 const vaultCompiledContract: any = (CompiledContract.withCompiledFileAssets as any)(
   (CompiledContract.withWitnesses as any)(
     (CompiledContract.make as any)('erc20-vault', Contract as any),
     witnesses,
   ),
-  typeof window !== 'undefined' ? window.location.origin : '',
+  ZK_ORIGIN,
 );
 
 // Proving spans BOTH zk roots (vault + signet) — deposit/withdraw cross-call.
@@ -109,10 +117,9 @@ function buildProviders(
   cfg: MidnightNodeConfig,
   accountId: string,
 ) {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const zkOpts = { fetchFunc: fetch.bind(window) };
-  const vaultZk = new FetchZkConfigProvider<string>(origin, zkOpts);
-  const signetZk = new FetchZkConfigProvider<string>(`${origin}/signet`, zkOpts);
+  const vaultZk = new FetchZkConfigProvider<string>(ZK_ORIGIN, zkOpts);
+  const signetZk = new FetchZkConfigProvider<string>(`${ZK_ORIGIN}/signet`, zkOpts);
 
   return {
     privateStateProvider: levelPrivateStateProvider({
@@ -142,12 +149,30 @@ export interface WalletHandle {
   identitySecret: Uint8Array;
   facade: WalletFacade;
   keys: AccountKeys;
+  recheckpoint: () => Promise<void>;
   stop: () => Promise<void>;
+}
+
+// A cached checkpoint from a chain that was reset (new genesis) resumes without error but never
+// finishes syncing, so waitForSyncedState hangs at "connecting to indexer…". Bound the cached
+// resume with this timeout so a stalled checkpoint falls through to a from-scratch resync.
+const CACHED_SYNC_TIMEOUT_MS = 20_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
 }
 
 // Build + start + sync the facade, then assemble the provider set around it. Restores
 // from the cached checkpoint when present (delta sync); falls back to a full resync if
-// the cached state is rejected. Reports sync progress via `onProgress`.
+// the cached state is rejected or a reset chain stalls it. Reports sync progress via `onProgress`.
 export async function initializeWallet(
   networkId: string,
   log: (m: string) => void,
@@ -197,27 +222,42 @@ export async function initializeWallet(
   try {
     log(cached ? 'Resuming wallet from cached state…' : 'Starting the in-app wallet (syncing to the node)…');
     facade = await startFacade(cached);
-    state = await facade.waitForSyncedState();
+    // A stale checkpoint (e.g. after a chain reset) resumes without throwing but never syncs, so
+    // bound the cached wait; a fresh start has no checkpoint to stall on and waits normally.
+    state = cached
+      ? await withTimeout(facade.waitForSyncedState(), CACHED_SYNC_TIMEOUT_MS, 'cached wallet sync')
+      : await facade.waitForSyncedState();
   } catch (e) {
     if (!cached) throw e;
-    log('Cached wallet state rejected — resyncing from scratch…');
+    log('Cached wallet state rejected or stalled — resyncing from scratch…');
+    try {
+      await (facade! as unknown as { stop?: () => Promise<void> })?.stop?.();
+    } catch {
+      /* best-effort: drop the stalled facade before resyncing */
+    }
     await idbDelete(cacheKey);
     facade = await startFacade();
     state = await facade.waitForSyncedState();
   }
   log('Wallet synced.');
 
-  // Checkpoint for the next load (best-effort).
-  try {
-    const [sh, un, du] = await Promise.all([
-      (facade as any).shielded.serializeState(),
-      (facade as any).unshielded.serializeState(),
-      (facade as any).dust.serializeState(),
-    ]);
-    await idbSet(cacheKey, { shielded: sh, unshielded: un, dust: du });
-  } catch {
-    /* cache is best-effort */
-  }
+  // Serialize the live facade state to the checkpoint. Runs at first sync and again after every
+  // transaction (via the handle's recheckpoint), so a restored checkpoint stays close to the chain
+  // tip: a far-behind checkpoint mis-reconciles already-spent dust and the node rejects the next
+  // transaction as DustDoubleSpend.
+  const writeCheckpoint = async () => {
+    try {
+      const [sh, un, du] = await Promise.all([
+        (facade as any).shielded.serializeState(),
+        (facade as any).unshielded.serializeState(),
+        (facade as any).dust.serializeState(),
+      ]);
+      await idbSet(cacheKey, { shielded: sh, unshielded: un, dust: du });
+    } catch {
+      /* cache is best-effort */
+    }
+  };
+  await writeCheckpoint();
 
   // state.shielded.address is an object — bech32-encode for display.
   let shieldedAddress = '';
@@ -268,6 +308,16 @@ export async function initializeWallet(
     identitySecret: await identityFromSeed(seed),
     facade,
     keys,
+    // Re-write the checkpoint after a transaction, syncing to the tip first so the stored state
+    // reflects the just-spent dust. Best-effort: a failed sync keeps the last checkpoint.
+    recheckpoint: async () => {
+      try {
+        await withTimeout(facade.waitForSyncedState(), CACHED_SYNC_TIMEOUT_MS, 'recheckpoint sync');
+      } catch {
+        /* proceed with the latest applied state */
+      }
+      await writeCheckpoint();
+    },
     stop: async () => {
       try {
         await (facade as any).stop?.();
@@ -276,6 +326,17 @@ export async function initializeWallet(
       }
     },
   };
+}
+
+// Drop the entire wallet-state checkpoint store so the next initializeWallet syncs from scratch.
+// Used to recover from a checkpoint that has drifted behind the chain (stale-dust rejections).
+export async function clearWalletCache(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(IDB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+    req.onblocked = () => resolve();
+  });
 }
 
 // Join the deployed vault with the identity secret as private state.

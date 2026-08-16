@@ -11,8 +11,16 @@ import {
   type ReactNode,
 } from 'react';
 
+import { formatUnits } from 'viem';
+
 import { midnightEnv, midnightNetworkId } from '@/lib/midnight/env';
 import { MIDNIGHT_TOKENS } from '@/lib/constants/token-metadata';
+import {
+  midnightTxHistory,
+  type MidnightTxRecord,
+} from '@/lib/midnight/tx-history';
+import { ERC20_TRANSFER_GAS_LIMIT } from '@/lib/midnight/evm-envelope';
+import { SWAP_GAS_LIMIT } from '@/lib/midnight/evm-swap';
 import type { MidnightBalances } from '@/lib/midnight/vault-balances';
 
 export type { MidnightBalances, MidnightTokenBalance } from '@/lib/midnight/vault-balances';
@@ -30,6 +38,7 @@ interface MidnightContextValue {
   disconnect: () => void;
   deposit: (erc20Address: string, amountUnits: bigint) => Promise<void>;
   withdraw: (erc20Address: string, amountUnits: bigint, receiver?: string) => Promise<void>;
+  swap: (tokenInErc20: string, tokenOutErc20: string, amountUnits: bigint, fee?: bigint, slippageBps?: bigint) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -52,13 +61,29 @@ const forwardLog = (m: string) => onWalletLog?.(m);
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const MIDNIGHT_ERC20S = MIDNIGHT_TOKENS.map(t => t.erc20Address);
 
+// Node rejection codes that mean the wallet's local view is behind the chain: 196 DustDoubleSpend,
+// 195 InputNotInUtxos, 171 OutOfDustValidityWindow. They surface as `Custom error: <code>` deep in
+// the submission error's cause chain. Recovery is a full resync, not a code fix.
+const STALE_STATE_ERROR_CODES = ['196', '195', '171'];
+function isStaleStateError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cur: any = error;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const msg = String(cur.message ?? cur);
+    if (STALE_STATE_ERROR_CODES.some(code => msg.includes(`Custom error: ${code}`))) return true;
+    cur = cur.cause;
+  }
+  return false;
+}
+
 // Relayer funds the gas of the address sending the MPC-signed transfer (parity with the
 // Solana bridge's top-up), so the user never hand-funds ETH.
-async function topUpGas(fromAddress: string): Promise<void> {
+async function topUpGas(fromAddress: string, gasLimit?: bigint): Promise<void> {
   const res = await fetch('/api/midnight/gas-topup', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fromAddress }),
+    body: JSON.stringify({ fromAddress, gasLimit: gasLimit?.toString() }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -84,6 +109,21 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
 
   const append = (m: string) =>
     setLog(l => [...l, `${new Date().toLocaleTimeString()}  ${m}`]);
+
+  // Token symbol + decimals for the Activity records (decimals come from the synced balances,
+  // defaulting to 6 for the demo stablecoins before the first balance read).
+  const tokenMeta = (erc20: string) => {
+    const t = MIDNIGHT_TOKENS.find(
+      x => x.erc20Address.toLowerCase() === erc20.toLowerCase(),
+    );
+    const decimals = balances?.perToken?.[erc20.toLowerCase()]?.decimals ?? 6;
+    return { symbol: t?.symbol ?? 'ERC20', decimals };
+  };
+  const fmtAmount = (amount: bigint, erc20: string) => {
+    const { symbol, decimals } = tokenMeta(erc20);
+    return `${formatUnits(amount, decimals)} ${symbol}`;
+  };
+  const nowSec = () => Math.floor(Date.now() / 1000);
 
   const startWallet = () => {
     eagerWallet ??= (async () => {
@@ -139,28 +179,61 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     setBalances(null);
   };
 
+  // Wire a freshly-synced wallet handle into the refs: providers, persisted identity private
+  // state, derived identity, and the joined vault contract. Shared by connect and rebuildWallet.
+  const bindWallet = async (handle: any) => {
+    const { joinVault, VAULT_PRIVATE_STATE_ID } = await import('@/lib/midnight/wallet');
+    const { deriveIdentity } = await import('@/lib/midnight/vault');
+    providersRef.current = handle.providers;
+    walletRef.current = handle;
+    await handle.providers.privateStateProvider.setContractAddress(midnightEnv.contractAddress);
+    await handle.providers.privateStateProvider.set(VAULT_PRIVATE_STATE_ID, {
+      secretKey: handle.identitySecret,
+    });
+    const identity = deriveIdentity(handle.identitySecret);
+    identityRef.current = identity;
+    vaultRef.current = await joinVault(handle.providers, midnightEnv.contractAddress, handle.identitySecret);
+    return identity;
+  };
+
+  // Recover from a stale-state rejection: tear down the wallet, drop the drifted checkpoint, and
+  // full-resync a fresh handle bound to the same refs.
+  const rebuildWallet = async () => {
+    append('Wallet state drifted behind the chain — resyncing from scratch...');
+    try {
+      walletRef.current?.stop?.();
+    } catch {
+      /* ignore */
+    }
+    eagerWallet = null;
+    const { clearWalletCache } = await import('@/lib/midnight/wallet');
+    await clearWalletCache();
+    const handle = await startWallet();
+    await bindWallet(handle);
+  };
+
+  // Run a transaction flow; on a stale-state rejection, resync the wallet and retry it once. The
+  // op reads the refs at call time so the retry runs against the rebuilt wallet.
+  const withStaleStateRecovery = async <T,>(op: () => Promise<T>): Promise<T> => {
+    try {
+      return await op();
+    } catch (e) {
+      if (!isStaleStateError(e)) throw e;
+      await rebuildWallet();
+      return await op();
+    }
+  };
+
   const connect = async () => {
     if (connecting || connected) return;
     setConnecting(true);
     try {
-      const { joinVault, VAULT_PRIVATE_STATE_ID } = await import('@/lib/midnight/wallet');
-      const { deriveIdentity, depositAddress: depAddr, vaultAddress: vAddr } =
+      const { depositAddress: depAddr, vaultAddress: vAddr } =
         await import('@/lib/midnight/vault');
 
       const handle = await startWallet();
-      providersRef.current = handle.providers;
-      walletRef.current = handle;
       setShieldedAddress(handle.shielded.shieldedAddress);
-
-      // Persist the deterministic identity so joinVault uses it.
-      await handle.providers.privateStateProvider.setContractAddress(midnightEnv.contractAddress);
-      await handle.providers.privateStateProvider.set(VAULT_PRIVATE_STATE_ID, {
-        secretKey: handle.identitySecret,
-      });
-
-      const identity = deriveIdentity(handle.identitySecret);
-      identityRef.current = identity;
-      vaultRef.current = await joinVault(handle.providers, midnightEnv.contractAddress, handle.identitySecret);
+      const identity = await bindWallet(handle);
 
       const dAddr = depAddr(midnightEnv, identity);
       const vaddr = vAddr(midnightEnv);
@@ -179,7 +252,7 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         }
       }, 5000);
       setConnected(true);
-      append('Connected (Developer wallet)');
+      append('Connected (Developer wallet · Midnight)');
     } catch (e) {
       eagerWallet = null;
       append(`Error: ${(e as Error).message}`);
@@ -202,20 +275,120 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
     const { runDeposit, runWithdraw } = await import('@/lib/midnight/vault');
     const { flow } = await import('@/lib/midnight/flow');
     flow.start(kind);
+    const amountStr = fmtAmount(amountUnits, erc20Address);
+    const { symbol } = tokenMeta(erc20Address);
+    // The Activity record is keyed by the request id (the deterministic on-chain id) — added when
+    // the request lands, patched with the real Sepolia tx hash once the MPC signs, so the row's
+    // explorer link is the actual EVM transfer.
+    let recordId: string | null = null;
+    const record = (
+      rid: string,
+      base: Omit<MidnightTxRecord, 'id' | 'status' | 'timestampRaw' | 'txHash'>,
+      evmTxHash?: string,
+    ) => {
+      if (recordId === rid) {
+        if (evmTxHash) midnightTxHistory.update(rid, { txHash: evmTxHash });
+        return;
+      }
+      recordId = rid;
+      midnightTxHistory.add({
+        id: rid,
+        ...base,
+        txHash: evmTxHash,
+        status: 'pending',
+        timestampRaw: nowSec(),
+      });
+    };
     try {
       if (kind === 'deposit') {
         append('Requesting gas top-up from relayer...');
         await topUpGas(depositAddress); // sweep is sent FROM the deposit address
-        await runDeposit(providers, vault, midnightEnv, identity, erc20Address, amountUnits, append);
+        await withStaleStateRecovery(() =>
+          runDeposit(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, erc20Address, amountUnits, append, (rid, hash) =>
+            record(
+              rid,
+              { type: 'Deposit', fromSymbol: 'WALLET', fromAmount: depositAddress, toSymbol: symbol, toAmount: amountStr, counterparty: depositAddress },
+              hash,
+            ),
+          ),
+        );
       } else {
         const hex = (receiver ?? '').trim().replace(/^0x/, '');
         const destHex = hex.length === 40 ? `0x${hex}` : DEAD_ADDRESS;
         append('Requesting gas top-up from relayer...');
         await topUpGas(vaultAddress); // payout is sent FROM the vault address
-        await runWithdraw(providers, vault, midnightEnv, identity, erc20Address, amountUnits, destHex, append);
+        await withStaleStateRecovery(() =>
+          runWithdraw(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, erc20Address, amountUnits, destHex, append, () => topUpGas(vaultAddress), (rid, hash) =>
+            record(
+              rid,
+              { type: 'Withdraw', fromSymbol: symbol, fromAmount: amountStr, toSymbol: 'WALLET', toAmount: destHex, counterparty: destHex },
+              hash,
+            ),
+          ),
+        );
       }
+      if (recordId)
+        midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
       await refresh();
+      await walletRef.current?.recheckpoint?.();
     } catch (e) {
+      if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
+      flow.fail((e as Error).message);
+      throw e;
+    }
+  };
+
+  // Swap has two tokens (in/out), so it doesn't fit runFlow's single-erc20 signature. The
+  // swap is signed + paid by the VAULT account (it holds the pooled funds), so top up the
+  // vault for the swap's larger gas envelope PLUS a possible one-time router approval.
+  const runSwapFlow = async (
+    tokenInErc20: string,
+    tokenOutErc20: string,
+    amountUnits: bigint,
+    fee = 500n,
+    slippageBps = 100n,
+  ) => {
+    const providers = providersRef.current;
+    const vault = vaultRef.current;
+    const identity = identityRef.current;
+    if (!providers || !vault || !identity) throw new Error('Connect the Midnight wallet first.');
+    const { runSwap } = await import('@/lib/midnight/vault');
+    const { flow } = await import('@/lib/midnight/flow');
+    flow.start('swap');
+    let recordId: string | null = null;
+    const record = (rid: string, evmTxHash?: string) => {
+      if (recordId === rid) {
+        if (evmTxHash) midnightTxHistory.update(rid, { txHash: evmTxHash });
+        return;
+      }
+      recordId = rid;
+      midnightTxHistory.add({
+        id: rid,
+        type: 'Swap',
+        fromSymbol: tokenMeta(tokenInErc20).symbol,
+        fromAmount: fmtAmount(amountUnits, tokenInErc20),
+        toSymbol: tokenMeta(tokenOutErc20).symbol,
+        toAmount: '',
+        txHash: evmTxHash,
+        status: 'pending',
+        timestampRaw: nowSec(),
+      });
+    };
+    try {
+      append('Requesting gas top-up from relayer...');
+      await topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT);
+      await withStaleStateRecovery(() =>
+        runSwap(providersRef.current, vaultRef.current, midnightEnv, identityRef.current, tokenInErc20, tokenOutErc20, amountUnits, append, fee, slippageBps,
+          () => topUpGas(vaultAddress, SWAP_GAS_LIMIT + ERC20_TRANSFER_GAS_LIMIT),
+          (rid, hash) => record(rid, hash),
+        ),
+      );
+      if (recordId)
+        midnightTxHistory.update(recordId, { status: flow.refunded ? 'refunded' : 'completed' });
+      await refresh();
+      await walletRef.current?.recheckpoint?.();
+    } catch (e) {
+      if (recordId) midnightTxHistory.update(recordId, { status: 'failed' });
       flow.fail((e as Error).message);
       throw e;
     }
@@ -236,6 +409,8 @@ export function MidnightProvider({ children }: { children: ReactNode }) {
         disconnect: reset,
         deposit: (erc20, amount) => runFlow('deposit', erc20, amount),
         withdraw: (erc20, amount, receiver) => runFlow('withdraw', erc20, amount, receiver),
+        swap: (tokenIn, tokenOut, amount, fee, slippageBps) =>
+          runSwapFlow(tokenIn, tokenOut, amount, fee, slippageBps),
         refresh,
       }}
     >

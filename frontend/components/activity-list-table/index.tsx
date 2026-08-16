@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/table';
 import { TruncatedText } from '@/components/ui/truncated-text';
 import { useSolanaTransactions } from '@/hooks/use-solana-transactions';
+import { useMidnightTransactions } from '@/hooks/use-midnight-transactions';
+import { useMidnightWallet } from '@/providers/midnight-context';
 import type { TxEntry, TxStatus } from '@/lib/relayer/tx-registry';
 
 import { CryptoIcon } from '../balance-display/crypto-icon';
@@ -284,6 +286,7 @@ function buildSolanaTransactions(
 
 export function ActivityListTable({ className }: ActivityListTableProps) {
   const { isConnected, account } = useWallet();
+  const midnight = useMidnightWallet();
   const [selectedTransaction, setSelectedTransaction] =
     useState<ActivityTransaction | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -299,8 +302,9 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
 
   const redisTxs = buildTransactionsFromRedis(txList ?? []);
   const solanaTxsFormatted = buildSolanaTransactions(solanaTxs, account);
+  const midnightTxs = useMidnightTransactions();
 
-  const allTransactions = [...redisTxs, ...solanaTxsFormatted]
+  const allTransactions = [...redisTxs, ...solanaTxsFormatted, ...midnightTxs]
     .filter((tx, index, self) => self.findIndex(t => t.id === tx.id) === index)
     .sort((a, b) => {
       const aTime = a.timestampRaw || 0;
@@ -405,8 +409,8 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           ) : (
             <TableRow>
               <TableCell colSpan={5} className='py-8 text-center text-gray-500'>
-                {isConnected
-                  ? 'No transactions found. Send ERC20 tokens to your deposit address to see activity.'
+                {isConnected || midnight.connected
+                  ? 'No transactions found. Deposit, withdraw, or swap to see activity.'
                   : 'Connect your wallet to view transaction activity.'}
               </TableCell>
             </TableRow>

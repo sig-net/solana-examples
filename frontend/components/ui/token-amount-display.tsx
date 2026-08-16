@@ -25,6 +25,9 @@ interface TokenAmountDisplayProps {
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  // Amount is computed, not user-entered (e.g. a quote): the input is non-editable and the
+  // `max` shortcut is hidden, but the token dropdown still works so the token can be changed.
+  readOnly?: boolean;
 }
 
 export function TokenAmountDisplay({
@@ -37,6 +40,7 @@ export function TokenAmountDisplay({
   className = '',
   placeholder = '0.00',
   disabled = false,
+  readOnly = false,
 }: TokenAmountDisplayProps) {
   const handleMaxClick = () => {
     if (selectedToken) {
@@ -60,11 +64,12 @@ export function TokenAmountDisplay({
             inputMode='decimal'
             enterKeyHint='done'
             value={value}
-            onChange={e => !disabled && onChange(e.target.value)}
+            onChange={e => !disabled && !readOnly && onChange(e.target.value)}
+            readOnly={readOnly}
             placeholder={placeholder}
             className='text-dark-neutral-500 w-full min-w-0 border-none bg-transparent text-lg outline-none sm:text-xl'
           />
-          {selectedToken && !disabled && (
+          {selectedToken && !disabled && !readOnly && (
             <button
               type='button'
               onClick={handleMaxClick}

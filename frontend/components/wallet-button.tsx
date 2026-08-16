@@ -118,7 +118,7 @@ export function WalletButton() {
                     </div>
                     <span className='flex flex-col'>
                       <span className='text-sm font-medium text-gray-900'>
-                        Developer wallet
+                        Developer wallet (Midnight)
                       </span>
                       <span className='text-xs text-gray-500'>
                         In-app seed wallet · ledger-9 · Sepolia

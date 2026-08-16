@@ -45,8 +45,8 @@ const DEPOSIT_STEPS: StepConfig[] = [
   },
   {
     status: 'solana_pending',
-    label: 'Processing on Solana',
-    description: 'Creating deposit record on Solana',
+    label: 'Processing on-chain',
+    description: 'Creating deposit record on-chain',
   },
   {
     status: 'signature_pending',
@@ -94,7 +94,7 @@ const WITHDRAWAL_STEPS: StepConfig[] = [
   {
     status: 'completing',
     label: 'Finalizing',
-    description: 'Completing the withdrawal on Solana',
+    description: 'Completing the withdrawal on-chain',
   },
   {
     status: 'completed',
@@ -277,7 +277,7 @@ export function TransactionDetailsDialog({
             {/* Step 2: Solana Init (deposit or withdrawal initiation) */}
             <div className='flex items-center justify-between text-sm'>
               <span className='text-gray-500'>
-                {txStatus?.gasTopUpTxHash ? '2' : '1'}. Solana {isDeposit ? 'Init Deposit' : 'Init Withdraw'}
+                {txStatus?.gasTopUpTxHash ? '2' : '1'}. On-chain {isDeposit ? 'Init Deposit' : 'Init Withdraw'}
               </span>
               {txStatus?.solanaInitTxHash ? (
                 <a
@@ -317,7 +317,7 @@ export function TransactionDetailsDialog({
             {/* Step 4: Solana Finalize (claim or complete withdrawal) */}
             <div className='flex items-center justify-between text-sm'>
               <span className='text-gray-500'>
-                {txStatus?.gasTopUpTxHash ? '4' : '3'}. Solana {isDeposit ? 'Claim' : 'Finalize'}
+                {txStatus?.gasTopUpTxHash ? '4' : '3'}. On-chain {isDeposit ? 'Claim' : 'Finalize'}
               </span>
               {txStatus?.solanaFinalizeTxHash ? (
                 <a

@@ -29,4 +29,8 @@ export const witnesses: Witnesses<VaultPrivateState> = {
 /** The vault declares its signet request index as ledger field 0. */
 export const VAULT_REQUESTS_INDEX_FIELD = 0;
 
+/** Swaps register in a separate map (swapEventMap) at field 11, so the swap flow reads
+ * MPC responses from this position. Must match the `11 as Uint<8>` the swap circuit passes. */
+export const VAULT_SWAP_REQUESTS_INDEX_FIELD = 11;
+
 export { Contract, pureCircuits, ledger };
