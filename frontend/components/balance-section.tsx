@@ -9,12 +9,39 @@ import { DepositDialog } from '@/components/deposit-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useUserBalances } from '@/hooks';
 import { convertTokenBalancesToDisplayTokens } from '@/lib/utils';
+import { useMidnightWallet } from '@/providers/midnight-context';
+import { MIDNIGHT_TOKENS } from '@/lib/constants/token-metadata';
+import type { TokenWithBalance } from '@/lib/types/token.types';
 
 export function BalanceSection() {
   const { data: userBalances = [], isLoading, error } = useUserBalances();
+  const midnight = useMidnightWallet();
   const [isDepositDialogOpen, setIsDepositDialogOpen] = useState(false);
 
-  const displayTokens = convertTokenBalancesToDisplayTokens(userBalances);
+  // One row per vault shielded token with a balance, alongside Solana/ETH assets.
+  const midnightBalances = midnight.balances;
+  const midnightTokens: TokenWithBalance[] =
+    midnight.connected && midnightBalances
+      ? MIDNIGHT_TOKENS.flatMap(t => {
+          const b = midnightBalances.perToken[t.erc20Address.toLowerCase()];
+          if (!b || b.vaultUnits === 0n) return [];
+          return [
+            {
+              erc20Address: t.erc20Address,
+              symbol: t.symbol,
+              name: t.name,
+              decimals: b.decimals,
+              chain: 'midnight' as const,
+              balance: b.vaultUnits,
+            },
+          ];
+        })
+      : [];
+
+  const displayTokens = [
+    ...convertTokenBalancesToDisplayTokens(userBalances),
+    ...midnightTokens,
+  ];
 
   useEffect(() => {
     if (error) {
@@ -22,7 +49,7 @@ export function BalanceSection() {
     }
   }, [error]);
 
-  if (isLoading) {
+  if (isLoading && displayTokens.length === 0) {
     return (
       <div className='flex w-full max-w-full flex-col gap-5'>
         <div className='flex items-center justify-between'>

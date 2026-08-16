@@ -7,7 +7,12 @@ import { z } from 'zod';
 
 // Client-side environment variables (accessible in browser)
 const clientEnvSchema = z.object({
-  NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().min(1, 'Alchemy API key is required'),
+  // Single Sepolia JSON-RPC endpoint (any provider) for all EVM calls.
+  NEXT_PUBLIC_SEPOLIA_RPC_URL: z
+    .string()
+    .url({ message: 'Sepolia RPC URL is required' }),
+  // Only used by the Solana devnet RPC + Alchemy-SDK token service.
+  NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().optional(),
   NEXT_PUBLIC_HELIUS_RPC_URL: z.string().optional(),
   NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: z.string().optional(),
   NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL: z.string().optional(),
@@ -50,6 +55,7 @@ export type FullEnv = z.infer<typeof fullEnvSchema>;
  */
 export function getClientEnv(): ClientEnv {
   const rawEnv: Record<string, string | undefined> = {
+    NEXT_PUBLIC_SEPOLIA_RPC_URL: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL,
     NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
     NEXT_PUBLIC_HELIUS_RPC_URL: process.env.NEXT_PUBLIC_HELIUS_RPC_URL,
     NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: process.env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL,
@@ -85,6 +91,7 @@ export function getFullEnv(): FullEnv {
   }
 
   const rawEnv: Record<string, string | undefined> = {
+    NEXT_PUBLIC_SEPOLIA_RPC_URL: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL,
     NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
     NEXT_PUBLIC_HELIUS_RPC_URL: process.env.NEXT_PUBLIC_HELIUS_RPC_URL,
     NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: process.env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL,

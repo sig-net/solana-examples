@@ -3,16 +3,20 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { parseUnits } from 'viem';
+
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { LoadingState } from '@/components/states/LoadingState';
 import { useWithdrawEvmMutation, useWithdrawSolMutation, useHasActiveTransaction } from '@/hooks';
+import { useMidnightWallet } from '@/providers/midnight-context';
+import { useMidnightProgress } from '@/hooks/use-midnight-progress';
 
 import { AmountInput } from './amount-input';
 
 export interface WithdrawToken {
   symbol: string;
   name: string;
-  chain: 'ethereum' | 'solana';
+  chain: 'ethereum' | 'solana' | 'midnight';
   chainName: string;
   address: string;
   balance: string;
@@ -40,6 +44,8 @@ function WithdrawDialogContent({
   const withdrawEvmMutation = useWithdrawEvmMutation();
   const withdrawSolMutation = useWithdrawSolMutation();
   const hasActiveTransaction = useHasActiveTransaction();
+  const midnightWallet = useMidnightWallet();
+  const midnight = useMidnightProgress();
 
   const handleAmountSubmit = async (data: {
     token: WithdrawToken;
@@ -52,6 +58,16 @@ function WithdrawDialogContent({
       });
       return;
     }
+    // Midnight: fire-and-close — progress + result surface via MidnightProgressToaster.
+    if (data.token.chain === 'midnight') {
+      const units = parseUnits(data.amount, data.token.decimals);
+      midnightWallet.withdraw(data.token.address, units, data.receiverAddress).catch(() => {
+        /* surfaced by MidnightProgressToaster via flow.fail */
+      });
+      onClose();
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
@@ -91,7 +107,11 @@ function WithdrawDialogContent({
           />
         )}
         {isProcessing && (
-          <LoadingState message='Awaiting wallet confirmation…' />
+          <LoadingState
+            message={
+              midnight.active ? midnight.message : 'Awaiting wallet confirmation…'
+            }
+          />
         )}
       </div>
     </>

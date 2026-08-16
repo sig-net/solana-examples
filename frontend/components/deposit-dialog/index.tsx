@@ -11,9 +11,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CryptoIcon } from '@/components/balance-display/crypto-icon';
-import { TokenConfig, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
+import { LoadingState } from '@/components/states/LoadingState';
+import {
+  TokenConfig,
+  NetworkData,
+  fetchErc20Decimals,
+} from '@/lib/constants/token-metadata';
 import { useDepositAddress, useHasActiveTransaction } from '@/hooks';
 import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
+import { useMidnightWallet } from '@/providers/midnight-context';
+import { useMidnightProgress } from '@/hooks/use-midnight-progress';
 
 import { TokenSelection } from './token-selection';
 import { DepositAddress } from './deposit-address';
@@ -25,9 +32,7 @@ interface DepositDialogProps {
 
 export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const { account, isConnected } = useWallet();
-  const [selectedToken, setSelectedToken] = useState<TokenConfig | null>(
-    null,
-  );
+  const [selectedToken, setSelectedToken] = useState<TokenConfig | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkData | null>(
     null,
   );
@@ -37,6 +42,13 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const depositEvmMutation = useDepositEvmMutation();
   const solDepositAddress = account ?? '';
   const hasActiveTransaction = useHasActiveTransaction();
+  const midnight = useMidnightWallet();
+  const progress = useMidnightProgress();
+
+  // Midnight wallet connected -> Ethereum deposits fund the vault (even if Solana is
+  // also connected; the Solana-bridge path must not capture them).
+  const isVaultEvmDeposit =
+    midnight.connected && selectedNetwork?.chain === 'ethereum';
 
   // Derive step from state instead of syncing with useEffect
   const getStep = () => {
@@ -46,6 +58,14 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
 
     // Solana: skip generating step, address is always available
     if (selectedNetwork.chain === 'solana' && isConnected && account) {
+      return 'show-address';
+    }
+
+    // Midnight + vault-over-Ethereum: address comes from the wallet, no relayer step.
+    if (selectedNetwork.chain === 'midnight') {
+      return 'show-address';
+    }
+    if (isVaultEvmDeposit) {
       return 'show-address';
     }
 
@@ -67,8 +87,35 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const [isNotifying, setIsNotifying] = useState(false);
 
   const handleNotifyRelayer = async () => {
-    if (!isConnected || !account || !selectedToken || !selectedNetwork) return;
+    if (!selectedToken || !selectedNetwork) return;
     if (isNotifying) return;
+
+    // Midnight: the dialog shows the user's own shielded receive address — just close.
+    if (selectedNetwork.chain === 'midnight') {
+      handleClose();
+      return;
+    }
+
+    // Vault funding over Ethereum: deposit the ERC-20 sitting at the deposit address.
+    if (isVaultEvmDeposit) {
+      const erc20 = selectedToken.erc20Address;
+      const units =
+        midnight.balances?.perToken[erc20.toLowerCase()]?.depositUnits ?? 0n;
+      if (units === 0n) {
+        toast.error(`No ${selectedToken.symbol} at the deposit address`, {
+          description: `Send Sepolia ${selectedToken.symbol} to the address above first.`,
+        });
+        return;
+      }
+      // Fire-and-close: progress + result surface via MidnightProgressToaster.
+      midnight.deposit(erc20, units).catch(() => {
+        /* surfaced by MidnightProgressToaster via flow.fail */
+      });
+      handleClose();
+      return;
+    }
+
+    if (!isConnected || !account) return;
     if (hasActiveTransaction) {
       toast.error('Transaction in progress', {
         description: 'Please wait for the current transaction to complete',
@@ -171,17 +218,25 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
                   Deposit Address
                 </DialogTitle>
               </DialogHeader>
-              <DepositAddress
-                token={selectedToken}
-                network={selectedNetwork}
-                depositAddress={
-                  selectedNetwork.chain === 'solana'
-                    ? solDepositAddress
-                    : depositAddress || ''
-                }
-                isSubmitting={isNotifying}
-                onContinue={handleNotifyRelayer}
-              />
+              {isVaultEvmDeposit && progress.active ? (
+                <LoadingState message={progress.message} />
+              ) : (
+                <DepositAddress
+                  token={selectedToken}
+                  network={selectedNetwork}
+                  depositAddress={
+                    selectedNetwork.chain === 'solana'
+                      ? solDepositAddress
+                      : selectedNetwork.chain === 'midnight'
+                        ? midnight.shieldedAddress
+                        : isVaultEvmDeposit
+                          ? midnight.depositAddress
+                          : depositAddress || ''
+                  }
+                  isSubmitting={isNotifying}
+                  onContinue={handleNotifyRelayer}
+                />
+              )}
             </div>
           )}
       </DialogContent>

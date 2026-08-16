@@ -26,6 +26,14 @@ const nextConfig: NextConfig = {
       '@web3icons/react',
     ],
   },
+
+  turbopack: {
+    resolveAlias: {
+      // Midnight packages import a named `WebSocket`; the browser build of
+      // isomorphic-ws only default-exports. The shim provides both.
+      'isomorphic-ws': './lib/midnight/shims/isomorphic-ws.ts',
+    },
+  },
 };
 
 export default nextConfig;

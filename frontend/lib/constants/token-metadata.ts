@@ -7,7 +7,7 @@ export interface TokenConfig {
   erc20Address: string;
   symbol: string;
   name: string;
-  chain: 'ethereum' | 'solana';
+  chain: 'ethereum' | 'solana' | 'midnight';
   /** How to acquire this token on testnet */
   acquireHint?: string;
   /** Direct URL to get this token (faucet, swap page, etc.) */
@@ -74,8 +74,15 @@ export const SOLANA_TOKENS: TokenConfig[] = [
   },
 ];
 
+// Midnight (Lace) — the vault supports any ERC-20 (deposit/withdraw take the token
+// address), so expose the same Sepolia tokens as the Ethereum side, as shielded tokens.
+export const MIDNIGHT_TOKENS: TokenConfig[] = ERC20_TOKENS.map(t => ({
+  ...t,
+  chain: 'midnight' as const,
+}));
+
 export interface NetworkData {
-  chain: 'ethereum' | 'solana';
+  chain: 'ethereum' | 'solana' | 'midnight';
   chainName: string;
   symbol: string;
   tokens: TokenConfig[];
@@ -93,6 +100,12 @@ export const NETWORKS_WITH_TOKENS: NetworkData[] = [
     chainName: 'Solana',
     symbol: 'solana',
     tokens: SOLANA_TOKENS,
+  },
+  {
+    chain: 'midnight',
+    chainName: 'Midnight',
+    symbol: 'midnight',
+    tokens: MIDNIGHT_TOKENS,
   },
 ];
 

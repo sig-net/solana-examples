@@ -44,3 +44,11 @@ next-env.d.ts
 *.tsbuildinfo
 .turbo/
 .env*.local
+
+# Midnight generated assets, provisioned locally from the compiled
+# @midnight-examples/erc20-vault-contract (zk keys/zkir + compiled contract JS)
+public/keys/
+public/zkir/
+public/compiler/
+public/signet/
+lib/midnight/managed/

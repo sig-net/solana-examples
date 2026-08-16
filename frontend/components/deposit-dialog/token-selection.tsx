@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useWallet } from '@solana/connector/react';
 
 import type {
   NetworkData,
   TokenConfig,
 } from '@/lib/constants/token-metadata';
 import { NETWORKS_WITH_TOKENS } from '@/lib/constants/token-metadata';
+import { useMidnightWallet } from '@/providers/midnight-context';
 
 import { NetworkAccordionItem } from './network-accordion-item';
 
@@ -18,8 +20,16 @@ export function TokenSelection({ onTokenSelect }: TokenSelectionProps) {
   const [expandedNetworkId, setExpandedNetworkId] = useState<string | null>(
     null,
   );
+  const { isConnected, account } = useWallet();
+  const midnight = useMidnightWallet();
 
-  const networks = NETWORKS_WITH_TOKENS;
+  // Show only networks the connected wallet can use; Ethereum is common to both.
+  const solanaConnected = isConnected && !!account;
+  const networks = NETWORKS_WITH_TOKENS.filter(n => {
+    if (n.chain === 'midnight') return midnight.connected;
+    if (n.chain === 'solana') return solanaConnected;
+    return solanaConnected || midnight.connected; // ethereum
+  });
 
   const handleNetworkClick = (networkId: string) => {
     setExpandedNetworkId(expandedNetworkId === networkId ? null : networkId);

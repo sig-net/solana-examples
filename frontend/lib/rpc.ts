@@ -17,10 +17,9 @@ export function getEthereumProvider(): PublicClient {
   if (cachedEthereumProvider) {
     return cachedEthereumProvider;
   }
-  const rpcUrl = getAlchemyEthSepoliaRpcUrl();
   cachedEthereumProvider = createPublicClient({
     chain: sepolia,
-    transport: http(rpcUrl),
+    transport: http(getEthSepoliaRpcUrl()),
   });
   return cachedEthereumProvider;
 }
@@ -39,7 +38,7 @@ export function getAlchemyProvider(): Alchemy {
   return cachedAlchemyProvider;
 }
 
-export function getAlchemyEthSepoliaRpcUrl(): string {
-  const env = getClientEnv();
-  return `https://eth-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
+// The single Sepolia JSON-RPC endpoint (any provider) used by all EVM paths.
+export function getEthSepoliaRpcUrl(): string {
+  return getClientEnv().NEXT_PUBLIC_SEPOLIA_RPC_URL;
 }
