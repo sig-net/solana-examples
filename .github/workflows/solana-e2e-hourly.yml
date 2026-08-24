@@ -1,0 +1,179 @@
+name: Solana E2E Hourly
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Git ref to test
+        required: false
+        default: xiangyi/solana_e2e
+        type: string
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solana-e2e-hourly-${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
+  cancel-in-progress: false
+
+jobs:
+  contract-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANCHOR_VERSION: 0.31.1
+      TARGET_REF: ${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
+      INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
+      CHAIN_SIGNATURES_PROGRAM_ID: ${{ secrets.CHAIN_SIGNATURES_PROGRAM_ID }}
+      MPC_ROOT_PRIVATE_KEY: ${{ secrets.MPC_ROOT_PRIVATE_KEY }}
+      MPC_ROOT_PUBLIC_KEY: ${{ secrets.MPC_ROOT_PUBLIC_KEY }}
+      SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+      SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
+      DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
+      BITCOIN_NETWORK: regtest
+    defaults:
+      run:
+        shell: bash
+        working-directory: contract
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+
+          required=(
+            INFURA_API_KEY
+            CHAIN_SIGNATURES_PROGRAM_ID
+            SOLANA_RPC_URL
+            SOLANA_PRIVATE_KEY
+          )
+
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required secret: ${name}"
+              exit 1
+            fi
+          done
+
+          if [ -z "${MPC_ROOT_PRIVATE_KEY:-}" ] && [ -z "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
+            echo "::error::Set either MPC_ROOT_PRIVATE_KEY or MPC_ROOT_PUBLIC_KEY"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: contract/yarn.lock
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            clang \
+            llvm \
+            jq
+
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+          . "${HOME}/.cargo/env"
+          rustc --version
+          cargo --version
+
+      - name: Install Solana CLI
+        run: |
+          set -euo pipefail
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "${HOME}/.local/share/solana/install/active_release/bin" >> "${GITHUB_PATH}"
+          export PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
+          solana --version
+
+      - name: Install Anchor CLI
+        run: |
+          set -euo pipefail
+          . "${HOME}/.cargo/env"
+          cargo install --git https://github.com/solana-foundation/anchor avm --force
+          avm install "${ANCHOR_VERSION}"
+          avm use "${ANCHOR_VERSION}"
+          anchor --version
+
+      - name: Enable Corepack and confirm Yarn
+        run: |
+          set -euo pipefail
+          corepack enable
+          node --version
+          yarn --version
+
+      - name: Configure Solana wallet
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.config/solana"
+          printf '%s' "${SOLANA_PRIVATE_KEY}" > "${HOME}/.config/solana/id.json"
+          chmod 600 "${HOME}/.config/solana/id.json"
+          solana config set --keypair "${HOME}/.config/solana/id.json"
+          solana config set --url devnet
+          solana address
+          solana balance || true
+
+      - name: Write contract environment file
+        run: |
+          set -euo pipefail
+          {
+            printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
+            printf 'CHAIN_SIGNATURES_PROGRAM_ID=%s\n' "${CHAIN_SIGNATURES_PROGRAM_ID}"
+            printf 'SOLANA_RPC_URL=%s\n' "${SOLANA_RPC_URL}"
+            printf 'SOLANA_PRIVATE_KEY=%s\n' "${SOLANA_PRIVATE_KEY}"
+            printf 'DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=%s\n' "${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}"
+            printf 'BITCOIN_NETWORK=%s\n' "${BITCOIN_NETWORK}"
+
+            if [ -n "${MPC_ROOT_PRIVATE_KEY:-}" ]; then
+              printf 'MPC_ROOT_PRIVATE_KEY=%s\n' "${MPC_ROOT_PRIVATE_KEY}"
+            fi
+
+            if [ -n "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
+              printf 'MPC_ROOT_PUBLIC_KEY=%s\n' "${MPC_ROOT_PUBLIC_KEY}"
+            fi
+          } > .env
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build Solana program
+        run: anchor build
+
+      - name: Deploy to devnet
+        run: anchor deploy --provider.cluster devnet
+
+      - name: Check formatting
+        run: yarn lint
+
+      - name: Run ERC20 end-to-end test
+        run: anchor test --skip-build --skip-deploy
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Solana E2E Hourly"
+            echo
+            echo "- Ref: \`${TARGET_REF}\`"
+            echo "- Anchor: \`${ANCHOR_VERSION}\`"
+            echo "- Local chain-signature server disabled: \`${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}\`"
+            echo "- Bitcoin network: \`${BITCOIN_NETWORK}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
