@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 60
     env:
       ANCHOR_VERSION: 0.31.1
+      SOLANA_VERSION: 2.2.20
       TARGET_REF: ${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
       CHAIN_SIGNATURES_PROGRAM_ID: ${{ secrets.CHAIN_SIGNATURES_PROGRAM_ID }}
@@ -99,7 +100,7 @@ jobs:
       - name: Install Solana CLI
         run: |
           set -euo pipefail
-          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
           echo "${HOME}/.local/share/solana/install/active_release/bin" >> "${GITHUB_PATH}"
           export PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
           solana --version
@@ -174,6 +175,7 @@ jobs:
             echo
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Anchor: \`${ANCHOR_VERSION}\`"
+            echo "- Solana/Agave: \`${SOLANA_VERSION}\`"
             echo "- Local chain-signature server disabled: \`${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}\`"
             echo "- Bitcoin network: \`${BITCOIN_NETWORK}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
