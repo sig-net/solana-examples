@@ -27,10 +27,14 @@ jobs:
       SOLANA_VERSION: 2.2.20
       TARGET_REF: ${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
-      CHAIN_SIGNATURES_PROGRAM_ID: ${{ secrets.CHAIN_SIGNATURES_PROGRAM_ID }}
-      MPC_ROOT_PRIVATE_KEY: ${{ secrets.MPC_ROOT_PRIVATE_KEY }}
-      MPC_ROOT_PUBLIC_KEY: ${{ secrets.MPC_ROOT_PUBLIC_KEY }}
+      # The chain-signatures program and the MPC root key are both resolved
+      # from signet.js for this network, so neither is configured here.
+      MPC_NETWORK: testnet
       SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+      # Two distinct wallets: the deployer holds the program's upgrade
+      # authority and nothing else; the test wallet pays for test transactions
+      # and is the derivation path for the funded Sepolia addresses.
+      SOLANA_DEPLOYER_PRIVATE_KEY: ${{ secrets.SOLANA_DEPLOYER_PRIVATE_KEY }}
       SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
       DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
       BITCOIN_NETWORK: regtest
@@ -51,9 +55,9 @@ jobs:
 
           required=(
             INFURA_API_KEY
-            CHAIN_SIGNATURES_PROGRAM_ID
             SOLANA_RPC_URL
             SOLANA_PRIVATE_KEY
+            SOLANA_DEPLOYER_PRIVATE_KEY
           )
 
           for name in "${required[@]}"; do
@@ -62,11 +66,6 @@ jobs:
               exit 1
             fi
           done
-
-          if [ -z "${MPC_ROOT_PRIVATE_KEY:-}" ] && [ -z "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
-            echo "::error::Set either MPC_ROOT_PRIVATE_KEY or MPC_ROOT_PUBLIC_KEY"
-            exit 1
-          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -125,31 +124,38 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.config/solana"
+
+          # id.json is the test wallet: Anchor.toml's provider.wallet points at
+          # it, so it is what the test suite signs and pays with.
           printf '%s' "${SOLANA_PRIVATE_KEY}" > "${HOME}/.config/solana/id.json"
           chmod 600 "${HOME}/.config/solana/id.json"
+
+          # The deployer is used only by `anchor deploy`, via an explicit
+          # --provider.wallet override.
+          printf '%s' "${SOLANA_DEPLOYER_PRIVATE_KEY}" > "${HOME}/.config/solana/deployer.json"
+          chmod 600 "${HOME}/.config/solana/deployer.json"
+
           solana config set --keypair "${HOME}/.config/solana/id.json"
           solana config set --url devnet
-          solana address
-          solana balance || true
+
+          echo "test wallet: $(solana address -k "${HOME}/.config/solana/id.json") ($(solana balance -k "${HOME}/.config/solana/id.json" || echo unknown))"
+          echo "deployer:    $(solana address -k "${HOME}/.config/solana/deployer.json") ($(solana balance -k "${HOME}/.config/solana/deployer.json" || echo unknown))"
+
+          if [ "$(solana address -k "${HOME}/.config/solana/id.json")" = "$(solana address -k "${HOME}/.config/solana/deployer.json")" ]; then
+            echo "::error::SOLANA_PRIVATE_KEY and SOLANA_DEPLOYER_PRIVATE_KEY are the same account; they must be distinct"
+            exit 1
+          fi
 
       - name: Write contract environment file
         run: |
           set -euo pipefail
           {
             printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
-            printf 'CHAIN_SIGNATURES_PROGRAM_ID=%s\n' "${CHAIN_SIGNATURES_PROGRAM_ID}"
+            printf 'MPC_NETWORK=%s\n' "${MPC_NETWORK}"
             printf 'SOLANA_RPC_URL=%s\n' "${SOLANA_RPC_URL}"
             printf 'SOLANA_PRIVATE_KEY=%s\n' "${SOLANA_PRIVATE_KEY}"
             printf 'DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=%s\n' "${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}"
             printf 'BITCOIN_NETWORK=%s\n' "${BITCOIN_NETWORK}"
-
-            if [ -n "${MPC_ROOT_PRIVATE_KEY:-}" ]; then
-              printf 'MPC_ROOT_PRIVATE_KEY=%s\n' "${MPC_ROOT_PRIVATE_KEY}"
-            fi
-
-            if [ -n "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
-              printf 'MPC_ROOT_PUBLIC_KEY=%s\n' "${MPC_ROOT_PUBLIC_KEY}"
-            fi
           } > .env
 
       - name: Install JavaScript dependencies
@@ -159,7 +165,10 @@ jobs:
         run: anchor build
 
       - name: Deploy to devnet
-        run: anchor deploy --provider.cluster devnet
+        run: |
+          anchor deploy \
+            --provider.cluster devnet \
+            --provider.wallet "${HOME}/.config/solana/deployer.json"
 
       - name: Check formatting
         run: yarn lint
@@ -176,6 +185,9 @@ jobs:
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Anchor: \`${ANCHOR_VERSION}\`"
             echo "- Solana/Agave: \`${SOLANA_VERSION}\`"
+            echo "- MPC network: \`${MPC_NETWORK}\`"
+            echo "- Deployer: \`$(solana address -k "${HOME}/.config/solana/deployer.json" 2>/dev/null || echo unknown)\`"
+            echo "- Test wallet: \`$(solana address -k "${HOME}/.config/solana/id.json" 2>/dev/null || echo unknown)\`"
             echo "- Local chain-signature server disabled: \`${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}\`"
             echo "- Bitcoin network: \`${BITCOIN_NETWORK}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

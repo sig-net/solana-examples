@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-solana_core_contracts = "DzSqpUpL8DJ1z3wNAFnPMKRPZQL1oEZrwwSnXkA4w8Ce"
+solana_core_contracts = "DLJ41RXS8NE2nLPQWRMZHhjKDgSYgxJxECR1NtQEUkvR"
 
 [programs.localnet]
 solana_core_contracts = "GjU1P2X665JX3kygXqYYttTncfUwwh1akDK2apV13GUf"
