@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { NetworkIcon } from '@web3icons/react';
 
 import { CryptoIcon } from '@/components/balance-display/crypto-icon';
+import { MidnightLogo } from '@/components/midnight-logo';
 import { cn } from '@/lib/utils';
 import { NetworkData, TokenConfig } from '@/lib/constants/token-metadata';
 
@@ -35,13 +36,16 @@ export function NetworkAccordionItem({
         onClick={onNetworkClick}
       >
         <div className='flex items-center gap-3'>
-          {/* Network icon */}
-          <NetworkIcon
-            name={network.symbol}
-            size={28}
-            variant='background'
-            className='shrink-0 rounded-full'
-          />
+          {network.chain === 'midnight' ? (
+            <MidnightLogo className='size-7' />
+          ) : (
+            <NetworkIcon
+              name={network.symbol}
+              size={28}
+              variant='background'
+              className='shrink-0 rounded-full'
+            />
+          )}
           <div className='flex flex-col'>
             <span className='text-dark-neutral-500 text-base font-medium'>
               {network.chainName}

@@ -7,12 +7,15 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { getAlchemyEthSepoliaRpcUrl } from '@/lib/rpc';
+import { getEthSepoliaRpcUrl } from '@/lib/rpc';
 import { encodeErc20Transfer, estimateFees } from '@/lib/evm/tx-builder';
 import { getRelayerEthAccount } from '@/lib/utils/relayer-setup';
 
 const GAS_BUFFER_MULTIPLIER = 1.5;
-const MAX_TOPUP_ETH = parseEther('0.01');
+// Per-call cap on a single top-up. Must cover the largest single vault tx's upfront reservation:
+// the swap's 700k gas * 30 gwei = 0.021 ETH (plus the route's fee margin + buffer). The old 0.01
+// cap silently under-funded the swap after its gas envelope was raised.
+const MAX_TOPUP_ETH = parseEther('0.05');
 const GAS_LIMIT_BUFFER_PERCENT = 120n;
 const ETH_TRANSFER_GAS = 21000n;
 
@@ -41,7 +44,7 @@ async function sendGasTopUp(
   const walletClient = createWalletClient({
     account,
     chain: sepolia,
-    transport: http(getAlchemyEthSepoliaRpcUrl()),
+    transport: http(getEthSepoliaRpcUrl()),
   });
 
   const txHash = await walletClient.sendTransaction({

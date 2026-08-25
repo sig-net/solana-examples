@@ -8,9 +8,12 @@ import { SwapWidget } from '@/components/swap-widget';
 import { ActivityListTable } from '@/components/activity-list-table';
 import { EmptyStateWallet } from '@/components/empty-state-wallet';
 import { useBridgeAutoRefetch } from '@/hooks/use-bridge-auto-refetch';
+import { useMidnightWallet } from '@/providers/midnight-context';
 
 export default function Home() {
-  const { isConnected } = useWallet();
+  const { isConnected: solanaConnected } = useWallet();
+  const midnight = useMidnightWallet();
+  const isConnected = solanaConnected || midnight.connected;
   useBridgeAutoRefetch();
 
   return (

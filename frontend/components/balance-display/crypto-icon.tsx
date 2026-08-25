@@ -2,6 +2,7 @@
 
 import { TokenIcon, NetworkIcon } from '@web3icons/react';
 
+import { MidnightLogo } from '@/components/midnight-logo';
 import { cn } from '@/lib/utils';
 
 export function CryptoIcon({
@@ -34,15 +35,24 @@ export function CryptoIcon({
         className='rounded-full'
       />
 
-      <NetworkIcon
-        name={chain}
-        size={networkSize}
-        variant='background'
-        className={cn(
-          'absolute -right-1.5 bottom-0 rounded-sm',
-          sizeNumber <= 4 ? 'size-3' : 'size-4',
-        )}
-      />
+      {chain === 'midnight' ? (
+        <MidnightLogo
+          className={cn(
+            'absolute -right-1.5 bottom-0',
+            sizeNumber <= 4 ? 'size-3' : 'size-4',
+          )}
+        />
+      ) : (
+        <NetworkIcon
+          name={chain}
+          size={networkSize}
+          variant='background'
+          className={cn(
+            'absolute -right-1.5 bottom-0 rounded-sm',
+            sizeNumber <= 4 ? 'size-3' : 'size-4',
+          )}
+        />
+      )}
     </div>
   );
 }
