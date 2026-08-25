@@ -55,7 +55,7 @@ describe("BTC Happy Path", () => {
 
     const userBalancePda = deriveUserBalancePda(singleRequester.publicKey);
     const { amount: initialBalance } = await fetchUserBalance(
-      singleRequester.publicKey,
+      singleRequester.publicKey
     );
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
@@ -67,7 +67,7 @@ describe("BTC Happy Path", () => {
         plan.requester,
         plan.btcInputs,
         plan.btcOutputs,
-        plan.txParams,
+        plan.txParams
       )
       .accounts({
         payer: provider.wallet.publicKey,
@@ -81,7 +81,7 @@ describe("BTC Happy Path", () => {
     const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex,
-      depositTx,
+      depositTx
     );
 
     console.log("  • solana deposit tx:", depositTx);
@@ -95,7 +95,7 @@ describe("BTC Happy Path", () => {
       psbt,
       signatureMap,
       signatureRequestIds,
-      plan.vaultAuthority.compressedPubkey,
+      plan.vaultAuthority.compressedPubkey
     );
 
     const signedTx = psbt.extractTransaction();
@@ -110,7 +110,7 @@ describe("BTC Happy Path", () => {
       .claimBtc(
         planRequestIdBytes(plan),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
+        readEvent.signature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -119,11 +119,11 @@ describe("BTC Happy Path", () => {
     await provider.connection.confirmTransaction(claimTx);
 
     const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-      userBalancePda,
+      userBalancePda
     );
     const expectedBalance = initialBalance.add(plan.creditedAmount);
     expect(finalBalanceAccount.amount.toString()).to.equal(
-      expectedBalance.toString(),
+      expectedBalance.toString()
     );
     console.log("📍 Step 7: Balance verified");
   });
@@ -151,7 +151,7 @@ describe("BTC Happy Path", () => {
 
     const userBalancePda = deriveUserBalancePda(secondaryRequester.publicKey);
     const { amount: initialBalance } = await fetchUserBalance(
-      secondaryRequester.publicKey,
+      secondaryRequester.publicKey
     );
 
     console.log("📍 Step 2: Submitting deposit ix");
@@ -161,7 +161,7 @@ describe("BTC Happy Path", () => {
         plan.requester,
         plan.btcInputs,
         plan.btcOutputs,
-        plan.txParams,
+        plan.txParams
       )
       .accounts({
         payer: provider.wallet.publicKey,
@@ -175,7 +175,7 @@ describe("BTC Happy Path", () => {
     const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex,
-      depositTx,
+      depositTx
     );
 
     console.log("  • solana deposit tx:", depositTx);
@@ -188,7 +188,7 @@ describe("BTC Happy Path", () => {
       psbt,
       signatureMap,
       signatureRequestIds,
-      plan.vaultAuthority.compressedPubkey,
+      plan.vaultAuthority.compressedPubkey
     );
 
     const signedTx = psbt.extractTransaction();
@@ -201,7 +201,7 @@ describe("BTC Happy Path", () => {
       .claimBtc(
         planRequestIdBytes(plan),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
+        readEvent.signature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -210,11 +210,11 @@ describe("BTC Happy Path", () => {
     await provider.connection.confirmTransaction(claimTx);
 
     const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-      userBalancePda,
+      userBalancePda
     );
     const expectedBalance = initialBalance.add(plan.creditedAmount);
     expect(finalBalanceAccount.amount.toString()).to.equal(
-      expectedBalance.toString(),
+      expectedBalance.toString()
     );
   });
 
@@ -228,7 +228,7 @@ describe("BTC Happy Path", () => {
 
     const userBalancePda = deriveUserBalancePda(depositor.publicKey);
     const { amount: startingBalance } = await fetchUserBalance(
-      depositor.publicKey,
+      depositor.publicKey
     );
 
     if (startingBalance.lte(new BN(0))) {
@@ -256,11 +256,11 @@ describe("BTC Happy Path", () => {
       (await bitcoinAdapter.getAddressUtxos(plan.recipient.address)) ?? [];
     const initialRecipientBalance = initialRecipientUtxos.reduce(
       (acc, utxo) => acc + utxo.value,
-      0,
+      0
     );
 
     const currentLamports = await provider.connection.getBalance(
-      depositor.publicKey,
+      depositor.publicKey
     );
     const requiredLamports = 2 * anchor.web3.LAMPORTS_PER_SOL;
     const lamportsShortfall = requiredLamports - currentLamports;
@@ -271,7 +271,7 @@ describe("BTC Happy Path", () => {
         lamports: lamportsShortfall,
       });
       await provider.sendAndConfirm(
-        new anchor.web3.Transaction().add(transferIx),
+        new anchor.web3.Transaction().add(transferIx)
       );
     }
 
@@ -284,7 +284,7 @@ describe("BTC Happy Path", () => {
         plan.btcInputs,
         plan.amount,
         plan.recipient.address,
-        plan.txParams,
+        plan.txParams
       )
       .accounts({
         authority: depositor.publicKey,
@@ -300,7 +300,7 @@ describe("BTC Happy Path", () => {
     const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex,
-      withdrawTx,
+      withdrawTx
     );
 
     const balanceAfterInitiationAccount =
@@ -309,7 +309,7 @@ describe("BTC Happy Path", () => {
     const totalDebitBn = plan.amount.add(plan.fee);
     const expectedAfterInitiation = startingBalance.sub(totalDebitBn);
     expect(balanceAfterInitiation.toString()).to.equal(
-      expectedAfterInitiation.toString(),
+      expectedAfterInitiation.toString()
     );
 
     console.log("  • solana withdraw tx:", withdrawTx);
@@ -322,7 +322,7 @@ describe("BTC Happy Path", () => {
       withdrawPsbt,
       signatureMap,
       signatureRequestIds,
-      plan.globalVault.compressedPubkey,
+      plan.globalVault.compressedPubkey
     );
 
     const signedWithdrawTx = withdrawPsbt.extractTransaction();
@@ -339,7 +339,7 @@ describe("BTC Happy Path", () => {
       .completeWithdrawBtc(
         planRequestIdBytes(plan),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
+        readEvent.signature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -364,10 +364,10 @@ describe("BTC Happy Path", () => {
     expect(latestRecipientBalance).to.be.at.least(expectedRecipientBalance);
 
     const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-      userBalancePda,
+      userBalancePda
     );
     expect(finalBalanceAccount.amount.toString()).to.equal(
-      balanceAfterInitiation.toString(),
+      balanceAfterInitiation.toString()
     );
     console.log("📍 Step 6: Withdrawal balance checks passed");
   });
