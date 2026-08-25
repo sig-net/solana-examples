@@ -1,4 +1,4 @@
-name: Solana E2E Hourly
+name: ERC20 E2E Hourly
 
 on:
   workflow_dispatch:
@@ -36,7 +36,6 @@ jobs:
       SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
       SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
       DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
-      BITCOIN_NETWORK: regtest
     defaults:
       run:
         shell: bash
@@ -152,7 +151,6 @@ jobs:
               printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
             fi
             printf 'DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=%s\n' "${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}"
-            printf 'BITCOIN_NETWORK=%s\n' "${BITCOIN_NETWORK}"
           } > .env
 
       - name: Install JavaScript dependencies
@@ -187,22 +185,13 @@ jobs:
 
       - name: Run ERC20 end-to-end test
         run: |
-          set -euo pipefail
-
-          # Driven directly rather than through `anchor test`, which runs every
-          # suite under tests/ and starts a Bitcoin regtest container. Anchor is
-          # therefore not injecting the provider, so set it here.
-          ANCHOR_PROVIDER_URL="${SOLANA_RPC_URL}" \
-          ANCHOR_WALLET="${HOME}/.config/solana/id.json" \
-          NODE_OPTIONS='--import tsx' \
-            yarn mocha --no-warnings --timeout 2500000 --exit \
-              tests/sign-respond-erc20.ts
+          anchor run test-erc20 --provider.cluster "${SOLANA_RPC_URL}"
 
       - name: Write job summary
         if: always()
         run: |
           {
-            echo "## Solana E2E Hourly"
+            echo "## ERC20 E2E Hourly"
             echo
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Anchor: \`${ANCHOR_VERSION}\`"
@@ -211,5 +200,4 @@ jobs:
             echo "- Deployed program: \`${DEPLOY_STATE:-unknown}\`"
             echo "- Test wallet: \`$(solana address -k "${HOME}/.config/solana/id.json" 2>/dev/null || echo unknown)\`"
             echo "- Local chain-signature server disabled: \`${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}\`"
-            echo "- Bitcoin network: \`${BITCOIN_NETWORK}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

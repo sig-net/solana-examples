@@ -20,4 +20,8 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
+# Runs every suite, including BTC, around a Bitcoin regtest container.
 test = "yarn btc:start && NODE_OPTIONS='--import tsx' yarn run mocha --no-warnings --timeout 1000000 --exit 'tests/**/*.ts'; exitcode=$?; yarn btc:stop; exit $exitcode"
+
+# The ERC20 suite on its own: no Bitcoin container, no BTC suites.
+test-erc20 = "NODE_OPTIONS='--import tsx' yarn run mocha --no-warnings --timeout 2500000 --exit 'tests/sign-respond-erc20.ts'"

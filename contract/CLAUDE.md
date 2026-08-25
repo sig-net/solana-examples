@@ -5,10 +5,11 @@ This file provides guidance to Claude Code when working with code in the `contra
 ## Build & Development Commands
 
 ```bash
-anchor build          # Build the Solana program
-anchor test           # Build + deploy + run the ERC20 suite
-yarn lint             # Prettier check (CI enforces this)
-yarn lint:fix         # Prettier auto-fix
+anchor build             # Build the Solana program
+anchor test              # Build + deploy + run every suite (ETH and BTC)
+anchor run test-erc20    # Run only the ERC20 suite, no build, no Docker
+yarn lint                # Prettier check (CI enforces this)
+yarn lint:fix            # Prettier auto-fix
 ```
 
 Deploying needs the program's upgrade authority, which is **not** the wallet in
@@ -32,8 +33,9 @@ the `waitForEvent` budget plus a fixed budget for the rest of the case. With
 `MPC_WAITS_FOR_ETH_FINALITY` at its default it is 2,500,000 ms.
 
 `anchor test` runs every suite under `tests/` and starts and stops a Bitcoin
-regtest container around them, so Docker must be available. To run one file
-without Docker, drive mocha directly — see below.
+regtest container around them, so Docker must be available. There is no flag to
+narrow it to one suite: `[scripts].test` always runs, and `--run` adds a path
+rather than replacing it. Use the `test-erc20` script instead — see below.
 
 ### Running all tests
 
@@ -48,11 +50,29 @@ anchor test
 anchor test --skip-build --skip-deploy
 ```
 
-### Running a single file directly
+### Running only the ERC20 suite
 
-`anchor test` injects `ANCHOR_PROVIDER_URL` and `ANCHOR_WALLET` from
-`Anchor.toml`'s `[provider]` block. Driving mocha yourself does not, so set
-them (`ANCHOR_WALLET` must be an absolute path — dotenv does not expand `~`):
+`anchor run` executes a named `[scripts]` entry and sets up the provider the
+same way `anchor test` does, so this needs no environment plumbing. It does not
+build or deploy.
+
+```bash
+anchor run test-erc20
+
+# override the endpoint, e.g. to avoid the public devnet RPC
+anchor run test-erc20 --provider.cluster "<rpc-url>"
+```
+
+`[provider] cluster = "devnet"` resolves to the public endpoint, which
+rate-limits; the ERC20 test carries 429-tracing code for that reason. Pass
+`--provider.cluster` with a dedicated RPC, as CI does.
+
+### Driving mocha directly
+
+Bypassing Anchor means nothing sets `ANCHOR_PROVIDER_URL` or `ANCHOR_WALLET`,
+which `AnchorProvider.env()` requires. `ANCHOR_WALLET` is a **path** that Anchor
+reads with `fs.readFileSync`, not key material, and must be absolute — dotenv
+does not expand `~`:
 
 ```bash
 set -a; . ./.env; set +a
@@ -60,10 +80,6 @@ ANCHOR_PROVIDER_URL="<rpc-url>" ANCHOR_WALLET="$HOME/.config/solana/id.json" \
   NODE_OPTIONS='--import tsx' \
   yarn mocha --no-warnings --timeout 2500000 --exit tests/sign-respond-erc20.ts
 ```
-
-Note that `[provider] cluster = "devnet"` resolves to the public endpoint, which
-rate-limits; the ERC20 test carries 429-tracing code for that reason. Point
-`ANCHOR_PROVIDER_URL` at a dedicated RPC when running locally.
 
 Run **one instance at a time**. Concurrent runs share a derived Ethereum
 address, read the same nonce, and collide — one fails with
@@ -85,7 +101,9 @@ protocol.
 
 ### Program Structure
 
-- `programs/solana-contracts-examples/src/lib.rs` — Entrypoint with all instruction handlers
+All paths below are under `programs/solana-contracts-examples/`:
+
+- `src/lib.rs` — Entrypoint with all instruction handlers
 - `src/instructions/erc20_vault.rs` — ERC20 deposit, claim, withdraw, complete-withdraw logic
 - `src/instructions/btc_vault.rs` — BTC deposit, claim, withdraw, complete-withdraw logic
 - `src/contexts/` — Anchor account contexts (config, erc20, btc)
