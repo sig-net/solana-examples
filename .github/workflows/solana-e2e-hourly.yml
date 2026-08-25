@@ -8,6 +8,15 @@ on:
         required: false
         default: xiangyi/solana_e2e
         type: string
+      mpc_network:
+        description: MPC network to test against
+        required: false
+        default: testnet
+        type: choice
+        options:
+          - dev
+          - testnet
+          - mainnet
   schedule:
     - cron: "17 * * * *"
 
@@ -32,7 +41,7 @@ jobs:
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
       # The chain-signatures program and the MPC root key are both resolved
       # from signet.js for this network, so neither is configured here.
-      MPC_NETWORK: testnet
+      MPC_NETWORK: ${{ inputs.mpc_network || 'testnet' }}
       SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
       SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
       DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
