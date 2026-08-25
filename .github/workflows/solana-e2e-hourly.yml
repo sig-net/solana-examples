@@ -185,7 +185,7 @@ jobs:
             echo "DEPLOY_STATE=matches this ref" >> "${GITHUB_ENV}"
           else
             echo "DEPLOY_STATE=differs from this ref" >> "${GITHUB_ENV}"
-            echo "::warning::The deployed program does not match a build of this ref. This job tests the deployed bytecode; run the "Deploy Solana Program (devnet)" workflow to update it."
+            echo "::warning::The deployed program does not match a build of this ref. This job tests the deployed bytecode; run the 'Deploy Solana Program (devnet)' workflow to update it."
           fi
 
       - name: Check formatting
