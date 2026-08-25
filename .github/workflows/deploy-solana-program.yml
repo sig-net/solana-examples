@@ -1,8 +1,6 @@
 name: Deploy Solana Program (devnet)
 
-# The program is deployed when its source changes, not on a schedule. The
-# hourly E2E workflow deliberately holds no upgrade key and tests whatever is
-# currently deployed.
+# The program is deployed when its source changes, not on a schedule.
 on:
   push:
     branches:
@@ -23,8 +21,8 @@ on:
 permissions:
   contents: read
 
-# Never deploy while the E2E suite is mid-run, and never run two deploys at
-# once: both would rewrite the same program account.
+# Serializes every job that writes to the on-chain program: concurrent runs
+# would rewrite the same program account.
 concurrency:
   group: solana-devnet-program
   cancel-in-progress: false
