@@ -187,8 +187,16 @@ jobs:
 
       - name: Run ERC20 end-to-end test
         run: |
-          anchor test --skip-build --skip-deploy \
-            --provider.cluster "${SOLANA_RPC_URL}"
+          set -euo pipefail
+
+          # Driven directly rather than through `anchor test`, which runs every
+          # suite under tests/ and starts a Bitcoin regtest container. Anchor is
+          # therefore not injecting the provider, so set it here.
+          ANCHOR_PROVIDER_URL="${SOLANA_RPC_URL}" \
+          ANCHOR_WALLET="${HOME}/.config/solana/id.json" \
+          NODE_OPTIONS='--import tsx' \
+            yarn mocha --no-warnings --timeout 2500000 --exit \
+              tests/sign-respond-erc20.ts
 
       - name: Write job summary
         if: always()

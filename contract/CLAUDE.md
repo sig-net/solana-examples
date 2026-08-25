@@ -31,11 +31,9 @@ The per-test timeout is derived in `utils/envConfig.ts` rather than hardcoded:
 the `waitForEvent` budget plus a fixed budget for the rest of the case. With
 `MPC_WAITS_FOR_ETH_FINALITY` at its default it is 2,500,000 ms.
 
-Despite the name, the `anchor test` script currently runs **only**
-`tests/sign-respond-erc20.ts` — see the glob in `Anchor.toml`'s `[scripts]`
-section. It still starts and stops the Bitcoin regtest container around that
-run, so Docker must be available. The BTC suites under `tests/bitcoin/` exist
-but are not wired into the glob; run them directly with mocha if needed.
+`anchor test` runs every suite under `tests/` and starts and stops a Bitcoin
+regtest container around them, so Docker must be available. To run one file
+without Docker, drive mocha directly — see below.
 
 ### Running all tests
 
