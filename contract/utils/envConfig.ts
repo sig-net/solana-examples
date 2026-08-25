@@ -53,7 +53,19 @@ export type MpcNetwork = keyof typeof MPC_NETWORKS | "custom";
 
 const envSchema = z
   .object({
-    INFURA_API_KEY: z.string().min(1, "INFURA_API_KEY is required"),
+    // Full Sepolia JSON-RPC endpoint, e.g.
+    // https://eth-sepolia.g.alchemy.com/v2/<key>. Falls back to composing an
+    // Infura URL from INFURA_API_KEY when unset.
+    SEPOLIA_RPC_URL: z
+      .string()
+      .refine(
+        (val) => val.startsWith("http://") || val.startsWith("https://"),
+        "Must be a valid URL"
+      )
+      .optional(),
+    // Only still needed to compose the fallback URL above, and by the local
+    // chain signature server, whose config takes an Infura key directly.
+    INFURA_API_KEY: z.string().min(1).optional(),
     // Which MPC network to talk to. "dev" / "testnet" / "mainnet" resolve the
     // chain-signatures program and MPC root key together from signet.js.
     // "custom" targets a self-hosted MPC and requires both to be supplied.
@@ -149,11 +161,20 @@ const envSchema = z
       }
     }
 
+    if (!data.SEPOLIA_RPC_URL && !data.INFURA_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either SEPOLIA_RPC_URL or INFURA_API_KEY",
+        path: ["SEPOLIA_RPC_URL"],
+      });
+    }
+
     if (data.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER !== "true") {
       for (const key of [
         "SOLANA_RPC_URL",
         "SOLANA_PRIVATE_KEY",
         "MPC_ROOT_PRIVATE_KEY",
+        "INFURA_API_KEY",
       ] as const) {
         if (!data[key]) {
           ctx.addIssue({
@@ -230,7 +251,20 @@ const resolveChainSignaturesProgramId = (env: EnvConfig): string => {
   return env.CHAIN_SIGNATURES_PROGRAM_ID;
 };
 
+const resolveSepoliaRpcUrl = (env: EnvConfig): string => {
+  if (env.SEPOLIA_RPC_URL) {
+    return env.SEPOLIA_RPC_URL;
+  }
+
+  if (!env.INFURA_API_KEY) {
+    throw new Error("Provide either SEPOLIA_RPC_URL or INFURA_API_KEY");
+  }
+
+  return `https://sepolia.infura.io/v3/${env.INFURA_API_KEY}`;
+};
+
 export const CONFIG = {
+  SEPOLIA_RPC_URL: resolveSepoliaRpcUrl(ENV_CONFIG),
   INFURA_API_KEY: ENV_CONFIG.INFURA_API_KEY,
   MPC_NETWORK: ENV_CONFIG.MPC_NETWORK,
   MPC_ROOT_PUBLIC_KEY: resolveBasePublicKey(ENV_CONFIG),

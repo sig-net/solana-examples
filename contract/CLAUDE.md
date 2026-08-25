@@ -104,7 +104,10 @@ so commands must run from `contract/`).
 
 Always required:
 
-- `INFURA_API_KEY` — Sepolia RPC access
+- `SEPOLIA_RPC_URL` — full Sepolia JSON-RPC endpoint, e.g.
+  `https://eth-sepolia.g.alchemy.com/v2/<key>`. The Ethereum provider is built
+  unconditionally, so the ERC20 suite cannot run without it. When unset, an
+  Infura URL is composed from `INFURA_API_KEY` as a fallback.
 
 ### Choosing an MPC network
 
@@ -139,6 +142,9 @@ rewrites it to match `.env` when either has drifted.
   **only** when `DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=false`. The local fakenet
   signer is their sole consumer; the suite itself reaches Solana through
   `AnchorProvider.env()`.
+- `INFURA_API_KEY` — the fallback source for `SEPOLIA_RPC_URL`, and required
+  when `DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=false` because the fakenet signer
+  takes an Infura key directly.
 - `BITCOIN_NETWORK` — `regtest` or `testnet`.
 
 See `.env.example` for a working template.

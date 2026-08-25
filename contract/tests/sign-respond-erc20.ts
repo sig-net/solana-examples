@@ -26,9 +26,7 @@ class EthereumUtils {
   private provider: ethers.JsonRpcProvider;
 
   constructor() {
-    this.provider = new ethers.JsonRpcProvider(
-      `https://sepolia.infura.io/v3/${CONFIG.INFURA_API_KEY}`
-    );
+    this.provider = new ethers.JsonRpcProvider(CONFIG.SEPOLIA_RPC_URL);
   }
 
   /**
