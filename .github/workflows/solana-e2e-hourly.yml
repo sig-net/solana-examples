@@ -152,8 +152,6 @@ jobs:
           {
             printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
             printf 'MPC_NETWORK=%s\n' "${MPC_NETWORK}"
-            printf 'SOLANA_RPC_URL=%s\n' "${SOLANA_RPC_URL}"
-            printf 'SOLANA_PRIVATE_KEY=%s\n' "${SOLANA_PRIVATE_KEY}"
             printf 'DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=%s\n' "${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}"
             printf 'BITCOIN_NETWORK=%s\n' "${BITCOIN_NETWORK}"
           } > .env
@@ -167,14 +165,16 @@ jobs:
       - name: Deploy to devnet
         run: |
           anchor deploy \
-            --provider.cluster devnet \
+            --provider.cluster "${SOLANA_RPC_URL}" \
             --provider.wallet "${HOME}/.config/solana/deployer.json"
 
       - name: Check formatting
         run: yarn lint
 
       - name: Run ERC20 end-to-end test
-        run: anchor test --skip-build --skip-deploy
+        run: |
+          anchor test --skip-build --skip-deploy \
+            --provider.cluster "${SOLANA_RPC_URL}"
 
       - name: Write job summary
         if: always()
