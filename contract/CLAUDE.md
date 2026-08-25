@@ -6,18 +6,36 @@ This file provides guidance to Claude Code when working with code in the `contra
 
 ```bash
 anchor build          # Build the Solana program
-anchor test           # Build + run all tests (ETH and BTC)
-yarn lint             # Prettier check
+anchor test           # Build + deploy + run the ERC20 suite
+yarn lint             # Prettier check (CI enforces this)
 yarn lint:fix         # Prettier auto-fix
 ```
 
+Deploying needs the program's upgrade authority, which is **not** the wallet in
+`Anchor.toml`'s `[provider]` block. That wallet is the test wallet; pass the
+deployer explicitly:
+
+```bash
+anchor deploy --provider.wallet ~/.config/solana/<deployer>.json
+```
+
+Check the current authority with
+`solana program show <program-id> -u devnet`.
+
 ## Testing
 
-Tests are **long-running and verbose** (timeout is set to 1,000,000ms). Always run tests in a **background Bash task** and peek into the output to check progress and logs.
+Tests are **long-running and verbose**. Always run them in a **background Bash
+task** and peek into the output to check progress and logs.
 
-Anchor reads the RPC URL and wallet from `solana config` — no need to set `ANCHOR_PROVIDER_URL` or `ANCHOR_WALLET` env vars. Verify with `solana config get`.
+The per-test timeout is derived in `utils/envConfig.ts` rather than hardcoded:
+the `waitForEvent` budget plus a fixed budget for the rest of the case. With
+`MPC_WAITS_FOR_ETH_FINALITY` at its default it is 2,500,000 ms.
 
-ETH and BTC test suites run together. BTC tests use a self-contained Docker regtest node (Bitcoin Core v30) managed automatically by the Anchor test script — no external `bitcoin-regtest` repo needed. The script starts the container, creates a wallet, mines 101 blocks, runs tests, then tears down Docker.
+Despite the name, the `anchor test` script currently runs **only**
+`tests/sign-respond-erc20.ts` — see the glob in `Anchor.toml`'s `[scripts]`
+section. It still starts and stops the Bitcoin regtest container around that
+run, so Docker must be available. The BTC suites under `tests/bitcoin/` exist
+but are not wired into the glob; run them directly with mocha if needed.
 
 ### Running all tests
 
@@ -26,17 +44,32 @@ ETH and BTC test suites run together. BTC tests use a self-contained Docker regt
 anchor test
 ```
 
-Docker lifecycle (`btc:start`/`btc:stop`) is embedded in the Anchor.toml `[scripts]` section, so `anchor test` is fully self-contained.
-
-### Running without re-deploying
+### Running without rebuilding or redeploying
 
 ```bash
-anchor test --skip-deploy
+anchor test --skip-build --skip-deploy
 ```
 
-### How to monitor
+### Running a single file directly
 
-After launching a background task, use `TaskOutput` with `block: false` (or `Read` on the output file) to periodically check progress without blocking.
+`anchor test` injects `ANCHOR_PROVIDER_URL` and `ANCHOR_WALLET` from
+`Anchor.toml`'s `[provider]` block. Driving mocha yourself does not, so set
+them (`ANCHOR_WALLET` must be an absolute path — dotenv does not expand `~`):
+
+```bash
+set -a; . ./.env; set +a
+ANCHOR_PROVIDER_URL="<rpc-url>" ANCHOR_WALLET="$HOME/.config/solana/id.json" \
+  NODE_OPTIONS='--import tsx' \
+  yarn mocha --no-warnings --timeout 2500000 --exit tests/sign-respond-erc20.ts
+```
+
+Note that `[provider] cluster = "devnet"` resolves to the public endpoint, which
+rate-limits; the ERC20 test carries 429-tracing code for that reason. Point
+`ANCHOR_PROVIDER_URL` at a dedicated RPC when running locally.
+
+Run **one instance at a time**. Concurrent runs share a derived Ethereum
+address, read the same nonce, and collide — one fails with
+`REPLACEMENT_UNDERPRICED` while the other never mines.
 
 ### Test structure
 
@@ -48,7 +81,9 @@ After launching a background task, use `TaskOutput` with `block: false` (or `Rea
 
 ## Architecture Overview
 
-Anchor-based Solana program implementing cross-chain vault operations for ERC20 tokens (via EVM/Sepolia) and BTC using MPC signatures from the Chain Signatures protocol.
+Anchor-based Solana program implementing cross-chain vault operations for ERC20
+tokens (via EVM/Sepolia) and BTC using MPC signatures from the Chain Signatures
+protocol.
 
 ### Program Structure
 
@@ -61,15 +96,52 @@ Anchor-based Solana program implementing cross-chain vault operations for ERC20 
 - `src/error.rs` — Custom error definitions
 - `src/constants.rs` — Program constants
 
-### Environment
+## Environment
 
-Configuration loaded via `utils/envConfig.ts` with Zod validation. Requires a `.env` file with:
+Configuration is loaded via `utils/envConfig.ts` with Zod validation from a
+`.env` file in this directory (resolved against the process working directory,
+so commands must run from `contract/`).
+
+Always required:
 
 - `INFURA_API_KEY` — Sepolia RPC access
-- `CHAIN_SIGNATURES_PROGRAM_ID` — On-chain MPC program
-- `MPC_ROOT_PRIVATE_KEY` or `MPC_ROOT_PUBLIC_KEY` — MPC root key
-- `SOLANA_RPC_URL` — Solana cluster endpoint
-- `SOLANA_PRIVATE_KEY` — Test wallet key
+
+### Choosing an MPC network
+
+`MPC_NETWORK` selects which Chain Signatures deployment to talk to:
+
+- `dev`, `testnet`, `mainnet` — the chain-signatures program id and the MPC root
+  public key are both resolved from `signet.js`. Do not also set
+  `CHAIN_SIGNATURES_PROGRAM_ID` or `MPC_ROOT_PUBLIC_KEY`: a value that disagrees
+  with the selected network is rejected rather than silently ignored.
+- `custom` (the default) — a self-hosted MPC. **You must supply both
+  `CHAIN_SIGNATURES_PROGRAM_ID` and the root key** (`MPC_ROOT_PUBLIC_KEY`, or
+  `MPC_ROOT_PRIVATE_KEY` to derive it). Neither has a default, and validation
+  fails if either is missing.
+
+The program id and the root key are properties of the same network and must
+always match. Pairing one network's program with another's root key produces
+signatures that recover to an unexpected address; nothing fails at request time,
+so it surfaces much later as a transaction that never mines or a
+`claim_erc20` rejected with `InvalidSignature`.
+
+The on-chain `vault_config` account stores both values, and the ERC20 test
+rewrites it to match `.env` when either has drifted.
+
+### Other variables
+
+- `MPC_WAITS_FOR_ETH_FINALITY` — default `true`. Widens the `waitForEvent`
+  budget to 30 minutes, since respond events cannot arrive before the source
+  transaction finalizes. Set `false` for an MPC that responds on inclusion.
+- `DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER` — default `true`. The managed networks
+  are external, so this stays `true` unless running the local fakenet signer.
+- `SOLANA_RPC_URL`, `SOLANA_PRIVATE_KEY`, `MPC_ROOT_PRIVATE_KEY` — required
+  **only** when `DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=false`. The local fakenet
+  signer is their sole consumer; the suite itself reaches Solana through
+  `AnchorProvider.env()`.
+- `BITCOIN_NETWORK` — `regtest` or `testnet`.
+
+See `.env.example` for a working template.
 
 ## Before Completing Any Task
 
