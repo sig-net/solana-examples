@@ -2,25 +2,27 @@
 
 - Install dependencies: `yarn install`
 - Copy `.env.example` to `.env` and configure:
-  - `MPC_ROOT_KEY` or `MPC_ROOT_PUBLIC_KEY`
-  - `SOLANA_RPC_URL`, `SOLANA_PRIVATE_KEY`
-  - `BITCOIN_NETWORK` (regtest/testnet/mainnet)
-  - `INFURA_API_KEY` for EVM chains
+
+  - `MPC_NETWORK` — `dev`, `testnet`, `mainnet`, or `custom`. The managed
+    networks resolve the chain-signatures program and MPC root key from
+    `signet.js`; `custom` requires `CHAIN_SIGNATURES_PROGRAM_ID` and either
+    `MPC_ROOT_PUBLIC_KEY` or `MPC_ROOT_PRIVATE_KEY`.
+  - `SEPOLIA_RPC_URL` for EVM chains
+  - `BITCOIN_NETWORK` (regtest/testnet)
+
+  `SOLANA_RPC_URL` and `SOLANA_PRIVATE_KEY` are needed only when running the
+  local chain signature server. See `contract/CLAUDE.md` for the full list.
 
 ### Bitcoin Setup (Regtest)
 
 For local Bitcoin testing with instant block mining:
 
+Bitcoin Core runs from `docker/bitcoin/docker-compose.yml` in this repository;
+`anchor test` starts and stops it automatically. To manage it by hand:
+
 ```bash
-# Clone the Bitcoin regtest repository
-git clone https://github.com/Pessina/bitcoin-regtest.git
-cd bitcoin-regtest
-
-# Start Bitcoin Core in regtest mode
-yarn docker:dev
-
-# Bitcoin RPC will be available at: http://localhost:18443
-# Web UI at: http://localhost:5173
+yarn btc:start   # start the container, create a wallet, mine 101 blocks
+yarn btc:stop    # tear it down
 ```
 
 Set in `.env`:
@@ -33,14 +35,16 @@ BITCOIN_NETWORK=regtest
 
 - `regtest` - Local Bitcoin Core (addresses: `bcrt1q...`) - Auto-mines blocks, instant funding
 - `testnet` - Bitcoin testnet4 (addresses: `tb1q...`) - Requires external faucet
-- `mainnet` - Bitcoin mainnet (addresses: `bc1q...`) - Production use only
 
 ## Build, Type Check, and Test
 
 - Compile programs: `anchor build`
-- Deploy to devnet: `anchor deploy --provider.cluster devnet`
+- Deploy to devnet: `anchor deploy --provider.wallet <deployer-keypair>` —
+  deploying needs the program's upgrade authority, which is not the wallet in
+  `Anchor.toml`'s `[provider]` block
 - Type check and lint: `yarn lint`
-- Run tests: `anchor test --skip-build --skip-deploy`
+- Run tests: `anchor test --skip-build --skip-deploy` (every suite), or
+  `anchor run test-erc20` for the ERC20 suite alone
 - The TypeScript integration tests automatically ensure the on-chain `vault_config`
   account is initialized with the derived MPC root signer. If the account already
   exists with the correct key, the setup skips re-initialization.

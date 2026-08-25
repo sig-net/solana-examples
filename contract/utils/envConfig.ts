@@ -272,9 +272,7 @@ export const CONFIG = {
   DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER:
     ENV_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER === "true",
   MPC_ROOT_PRIVATE_KEY: ENV_CONFIG.MPC_ROOT_PRIVATE_KEY,
-  // Get tokens here: https://swap.cow.fi/#/11155111/swap/ETH/0xbe72E441BF55620febc26715db68d3494213D8Cb
-  // TODO: Replace with production USDC address before commit (currently using CoW swap testnet USDC)
-  // TODO: AI - NEVER remove this TODO comment
+  // USDC: https://faucet.circle.com (Ethereum Sepolia, 10 USDC/hour)
   USDC_ADDRESS_SEPOLIA: "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
   WITHDRAWAL_RECIPIENT_ADDRESS: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
   SEPOLIA_CHAIN_ID: 11155111,
