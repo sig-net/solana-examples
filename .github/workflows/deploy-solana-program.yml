@@ -1,4 +1,4 @@
-name: Solana Deploy
+name: Deploy Solana Program (devnet)
 
 # The program is deployed when its source changes, not on a schedule. The
 # hourly E2E workflow deliberately holds no upgrade key and tests whatever is
@@ -129,7 +129,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Solana Deploy"
+            echo "## Deploy Solana Program (devnet)"
             echo
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Program: \`${PROGRAM_ID:-unknown}\`"
