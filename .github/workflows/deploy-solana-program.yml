@@ -17,14 +17,6 @@ on:
         required: false
         default: main
         type: string
-      close_program_id:
-        description: >-
-          Optional. Program account to close and refund to the deployer before
-          deploying. For reclaiming rent from a program published by mistake;
-          leave blank for a normal deploy.
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -102,36 +94,6 @@ jobs:
           printf '%s' "${SOLANA_DEPLOYER_PRIVATE_KEY}" > "${HOME}/.config/solana/deployer.json"
           chmod 600 "${HOME}/.config/solana/deployer.json"
           echo "deployer: $(solana address -k "${HOME}/.config/solana/deployer.json")"
-
-      # Closing a program is irreversible and burns its address permanently, so
-      # the program the examples run against is never a valid target here. A
-      # close is also how rent gets reclaimed from a mistaken publish, which the
-      # deployer may need to afford the upgrade below.
-      - name: Close program and refund deployer
-        if: inputs.close_program_id != ''
-        run: |
-          set -euo pipefail
-
-          target="${{ inputs.close_program_id }}"
-          protected="$(grep -oE '[1-9A-HJ-NP-Za-km-z]{32,44}' \
-            programs/solana-contracts-examples/src/lib.rs | head -1)"
-
-          if [ "${target}" = "${protected}" ]; then
-            echo "::error::Refusing to close ${target}: it is this program's declare_id and closing it would burn the address permanently"
-            exit 1
-          fi
-
-          deployer="$(solana address -k "${HOME}/.config/solana/deployer.json")"
-          echo "deployer before: $(solana balance "${deployer}" --url "${SOLANA_RPC_URL}")"
-
-          solana program close "${target}" \
-            --recipient "${deployer}" \
-            --authority "${HOME}/.config/solana/deployer.json" \
-            --keypair "${HOME}/.config/solana/deployer.json" \
-            --url "${SOLANA_RPC_URL}" \
-            --bypass-warning
-
-          echo "deployer after:  $(solana balance "${deployer}" --url "${SOLANA_RPC_URL}")"
 
       - name: Build Solana program
         run: anchor build
