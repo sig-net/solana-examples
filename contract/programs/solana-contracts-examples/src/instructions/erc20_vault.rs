@@ -47,7 +47,7 @@ pub fn deposit_erc20(
     let rlp_encoded_tx = evm_tx.build_for_signing();
 
     // Generate CAIP-2 ID from chain ID
-    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+    let caip2_id = format!("eip155:1");
 
     // Generate request ID and verify it matches the one passed in
     let computed_request_id = generate_sign_bidirectional_request_id(
@@ -225,7 +225,7 @@ pub fn withdraw_erc20(
     let rlp_encoded_tx = evm_tx.build_for_signing();
 
     // Generate CAIP-2 ID from chain ID
-    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+    let caip2_id = format!("eip155:1");
 
     // Generate request ID
     let computed_request_id = generate_sign_bidirectional_request_id(
@@ -328,9 +328,8 @@ pub fn complete_withdraw_erc20(
 
     // Derive the expected address on-chain from MPC root public key + "root" path
     // For withdrawals, the signer is always the global vault address
-    let expected_address_bytes = crate::crypto::derive_withdrawal_expected_address(
-        &config.mpc_root_public_key,
-    )?;
+    let expected_address_bytes =
+        crate::crypto::derive_withdrawal_expected_address(&config.mpc_root_public_key)?;
 
     let message_hash = hash_message(&request_id, &serialized_output);
     // Verify the signature

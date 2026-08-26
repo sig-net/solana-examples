@@ -30,14 +30,24 @@ pub struct DepositErc20<'info> {
     #[account(mut)]
     pub fee_payer: Option<Signer<'info>>,
 
-    /// CHECK: Chain signatures state
+    /// CHECK: This is the external chain-signatures program. We do not rely on Anchor's `Program<T>` type checks.
+    /// Safety is enforced by the constraint:
+    /// `chain_signatures_program.key() == config.chain_signatures_program_id`.
+    #[account(
+        constraint = chain_signatures_program.key() == config.chain_signatures_program_id
+            @ crate::error::ErrorCode::InvalidChainSignaturesProgram
+    )]
+    pub chain_signatures_program: UncheckedAccount<'info>,
+
+    /// CHECK: PDA owned/derived by the chain-signatures program.
+    /// Verified by Anchor using `seeds` + `seeds::program = chain_signatures_program.key()`.
     #[account(
         mut,
-        seeds = [CHAIN_SIGNATURES_STATE_SEED],
+        seeds = [b"program-state"],
         bump,
         seeds::program = chain_signatures_program.key()
     )]
-    pub chain_signatures_state: AccountInfo<'info>,
+    pub chain_signatures_state: UncheckedAccount<'info>,
 
     /// CHECK: Event authority for CPI events, PDA with seed "__event_authority"
     #[account(
@@ -46,8 +56,6 @@ pub struct DepositErc20<'info> {
         seeds::program = chain_signatures_program.key()
     )]
     pub event_authority: AccountInfo<'info>,
-
-    pub chain_signatures_program: Program<'info, ::chain_signatures::program::ChainSignatures>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
     #[account(
@@ -153,7 +161,14 @@ pub struct WithdrawErc20<'info> {
     )]
     pub event_authority: AccountInfo<'info>,
 
-    pub chain_signatures_program: Program<'info, ::chain_signatures::program::ChainSignatures>,
+    /// CHECK: This is the external chain-signatures program. We do not rely on Anchor's `Program<T>` type checks.
+    /// Safety is enforced by the constraint:
+    /// `chain_signatures_program.key() == config.chain_signatures_program_id`.
+    #[account(
+        constraint = chain_signatures_program.key() == config.chain_signatures_program_id
+            @ crate::error::ErrorCode::InvalidChainSignaturesProgram
+    )]
+    pub chain_signatures_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
     #[account(

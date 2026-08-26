@@ -9,7 +9,7 @@ import { contracts, utils as signetUtils } from "signet.js";
 import { ChainSignatureServer } from "fakenet-signer";
 
 const { getRequestIdBidirectional } = contracts.solana;
-import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
+import { CONFIG, SERVER_CONFIG, TEST_TIMEOUT_MS } from "../utils/envConfig";
 
 const COMPUTE_UNITS = 1_400_000;
 
@@ -26,9 +26,7 @@ class EthereumUtils {
   private provider: ethers.JsonRpcProvider;
 
   constructor() {
-    this.provider = new ethers.JsonRpcProvider(
-      `https://sepolia.infura.io/v3/${CONFIG.INFURA_API_KEY}`,
-    );
+    this.provider = new ethers.JsonRpcProvider(CONFIG.SEPOLIA_RPC_URL);
   }
 
   /**
@@ -44,7 +42,7 @@ class EthereumUtils {
   async buildTransferTransaction(
     from: string,
     to: string,
-    amount: bigint,
+    amount: bigint
   ): Promise<{
     callData: string;
     txParams: TransactionParams;
@@ -113,6 +111,10 @@ class EthereumUtils {
    * Submit signed transaction to Ethereum
    */
   async submitTransaction(signedTx: ethers.Transaction): Promise<string> {
+    // Log before broadcasting so the hash and sender are on record even if the
+    // transaction is never mined and the confirmation wait below times out.
+    console.log("  📤 Broadcasting:", signedTx.hash);
+    console.log("     from:", signedTx.from);
     const txHash = await this.provider.send("eth_sendRawTransaction", [
       signedTx.serialized,
     ]);
@@ -124,10 +126,17 @@ class EthereumUtils {
    */
   async waitForConfirmation(
     txHash: string,
+    timeoutMs = CONFIG.ETH_CONFIRMATION_TIMEOUT_MS
   ): Promise<ethers.TransactionReceipt> {
-    const receipt = await this.provider.waitForTransaction(txHash, 1);
+    const receipt = await this.provider.waitForTransaction(
+      txHash,
+      1,
+      timeoutMs
+    );
     if (!receipt) {
-      throw new Error("Transaction receipt not found");
+      throw new Error(
+        `Transaction ${txHash} not confirmed within ${timeoutMs}ms`
+      );
     }
     if (receipt.status !== 1) {
       throw new Error("Transaction failed");
@@ -138,11 +147,15 @@ class EthereumUtils {
 
 async function ensureVaultConfigInitialized(
   program: Program<SolanaCoreContracts>,
-  provider: anchor.AnchorProvider,
+  provider: anchor.AnchorProvider
 ) {
   const [vaultConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("vault_config")],
-    program.programId,
+    program.programId
+  );
+
+  const desiredProgramId = new anchor.web3.PublicKey(
+    CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
   );
 
   const publicKeyHex = CONFIG.MPC_ROOT_PUBLIC_KEY.startsWith("04")
@@ -152,16 +165,75 @@ async function ensureVaultConfigInitialized(
 
   const accountInfo = await provider.connection.getAccountInfo(vaultConfigPda);
 
+  // 1) does not exist: initialize with env config
   if (!accountInfo) {
     await program.methods
-      .initializeConfig(publicKeyBytes)
+      .initializeConfig(publicKeyBytes, desiredProgramId)
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();
+
+    console.log(
+      "✅ vault_config initialized with:",
+      desiredProgramId.toBase58()
+    );
+    return vaultConfigPda;
   }
+
+  // 2) Already exists: check and sync
+  const cfg = await program.account.vaultConfig.fetch(vaultConfigPda);
+
+  const onchainProgramId: anchor.web3.PublicKey =
+    (cfg as any).chainSignaturesProgramId ??
+    (cfg as any).chain_signatures_program_id;
+
+  const onchainRootKey: number[] =
+    (cfg as any).mpcRootPublicKey ?? (cfg as any).mpc_root_public_key;
+
+  // Both fields are checked: `update_config` writes them together, and the
+  // program verifies respond signatures against the stored root key, so a
+  // config stale in only that field fails at claim rather than earlier.
+  const programIdMatches = onchainProgramId.equals(desiredProgramId);
+  const rootKeyMatches = Buffer.from(onchainRootKey).equals(
+    Buffer.from(publicKeyBytes)
+  );
+
+  if (!programIdMatches || !rootKeyMatches) {
+    if (!programIdMatches) {
+      console.log(
+        "🔄 syncing onchain chain_signatures_program_id:",
+        onchainProgramId.toBase58(),
+        "->",
+        desiredProgramId.toBase58()
+      );
+    }
+
+    if (!rootKeyMatches) {
+      console.log(
+        "🔄 syncing onchain mpc_root_public_key:",
+        "04" + Buffer.from(onchainRootKey).toString("hex").slice(0, 16) + "…",
+        "->",
+        "04" + Buffer.from(publicKeyBytes).toString("hex").slice(0, 16) + "…"
+      );
+    }
+
+    await program.methods
+      .updateConfig(publicKeyBytes, desiredProgramId)
+      .accountsStrict({
+        payer: provider.wallet.publicKey,
+        config: vaultConfigPda,
+      })
+      .rpc();
+
+    console.log("✅ synced.");
+  } else {
+    console.log("✅ onchain vault_config already matches env.");
+  }
+
+  return vaultConfigPda;
 }
 
 describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
@@ -173,6 +245,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   >;
   let ethUtils: EthereumUtils;
   let server: ChainSignatureServer | null = null;
+  let vaultConfigPda: anchor.web3.PublicKey;
 
   before(async function () {
     this.timeout(30000);
@@ -194,24 +267,24 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
                 : body.method ?? "unknown";
             } catch {}
             console.warn(
-              `\n[429 TRACE] RPC method: ${method}\n${new Error().stack}`,
+              `\n[429 TRACE] RPC method: ${method}\n${new Error().stack}`
             );
           }
           return res;
         },
-      },
+      }
     );
     provider = new anchor.AnchorProvider(
       tracedConnection,
       envProvider.wallet,
-      anchor.AnchorProvider.defaultOptions(),
+      anchor.AnchorProvider.defaultOptions()
     );
     anchor.setProvider(provider);
 
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
-    await ensureVaultConfigInitialized(program, provider);
+    vaultConfigPda = await ensureVaultConfigInitialized(program, provider);
 
     ethUtils = new EthereumUtils();
 
@@ -222,6 +295,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         rootPublicKey: CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       },
     });
+
+    const cfg = await program.account.vaultConfig.fetch(vaultConfigPda);
+    console.log(
+      "onchain config chain sig program:",
+      cfg.chainSignaturesProgramId.toBase58()
+    );
+    console.log("env chain sig program:", CONFIG.CHAIN_SIGNATURES_PROGRAM_ID);
 
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
       const serverConfig = {
@@ -252,6 +332,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   });
 
   it("Should complete full ERC20 deposit flow", async function () {
+    this.timeout(TEST_TIMEOUT_MS);
     console.log("\n🚀 Starting ERC20 Deposit Flow Test\n");
 
     // =====================================================
@@ -262,12 +343,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("vault_authority"), provider.wallet.publicKey.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("global_vault_authority")],
-      program.programId,
+      program.programId
     );
 
     const path = provider.wallet.publicKey.toString();
@@ -276,7 +357,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       vaultAuthority.toString(),
       path,
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
 
@@ -285,7 +366,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       "root",
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
@@ -294,7 +375,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       vaultAuthority.toString(),
       CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -302,13 +383,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
     console.log(
       "  🔑 Chain Signatures Program ID:",
-      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
     console.log("  🔑 Derived address (FROM):", derivedAddress);
     console.log("  🎯 Signer address (TO):", signerAddress);
     console.log("  ⏳ Waiting 5 seconds...\n");
     await new Promise((resolve) =>
-      setTimeout(resolve, CONFIG.WAIT_FOR_FUNDING_MS),
+      setTimeout(resolve, CONFIG.WAIT_FOR_FUNDING_MS)
     );
 
     // =====================================================
@@ -319,24 +400,24 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const amountBigInt = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
-      CONFIG.DECIMALS,
+      CONFIG.DECIMALS
     );
     const amountBN = new BN(amountBigInt.toString());
     const erc20AddressBytes = Array.from(
-      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex"),
+      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
     );
 
     const { callData, txParams, rlpEncodedTx, nonce } =
       await ethUtils.buildTransferTransaction(
         derivedAddress,
         signerAddress,
-        amountBigInt,
+        amountBigInt
       );
 
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
     // Generate request ID
-    const requestId = getRequestIdBidirectional({
+    const requestId = contracts.solana.getRequestIdBidirectional({
       sender: vaultAuthority.toString(),
       payload: Array.from(ethers.getBytes(rlpEncodedTx)),
       caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
@@ -347,6 +428,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       params: "",
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
+    console.log(" requestId:", requestId);
 
     // =====================================================
     // STEP 3: DEPOSIT ERC20
@@ -358,17 +440,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program,
       provider,
       requestIdBytes,
-      erc20AddressBytes,
+      erc20AddressBytes
     );
 
     // Check initial balance
     const initialBalance = await getInitialBalance(
       program,
-      accounts.userBalance,
+      accounts.userBalance
     );
 
     const recipientAddressBytes = Array.from(
-      Buffer.from(signerAddress.slice(2), "hex"),
+      Buffer.from(signerAddress.slice(2), "hex")
     );
 
     const depositTx = await program.methods
@@ -378,12 +460,19 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         erc20AddressBytes,
         recipientAddressBytes,
         amountBN,
-        txParams,
+        txParams
       )
-      .accounts({
+      .accountsStrict({
         payer: provider.wallet.publicKey,
+        requesterPda: vaultAuthority,
+        pendingDeposit: accounts.pendingDeposit,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesProgram: accounts.chainSignaturesProgram,
+        chainSignaturesState: accounts.chainSignaturesState,
+        eventAuthority: accounts.eventAuthority,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -396,7 +485,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 4: Setting up event listeners...");
 
     const signer = new anchor.web3.PublicKey(
-      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
     // Start listeners AFTER the Solana tx so backfill starts from the tx hash
@@ -405,7 +494,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: depositTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -414,7 +503,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: depositTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -468,7 +557,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .claimErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance: accounts.userBalance,
@@ -487,7 +576,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 8: Verifying balance...");
 
     const finalBalance = await program.account.userErc20Balance.fetch(
-      accounts.userBalance,
+      accounts.userBalance
     );
     const expectedBalance = initialBalance.add(amountBN);
 
@@ -502,6 +591,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   });
 
   it("Should complete full ERC20 withdraw flow", async function () {
+    this.timeout(TEST_TIMEOUT_MS);
     console.log("\n🚀 Starting ERC20 Withdraw Flow Test\n");
 
     // =====================================================
@@ -511,7 +601,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("📍 Step 1: Checking current balance...");
 
     const erc20AddressBytes = Array.from(
-      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex"),
+      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
     );
 
     const [userBalance] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -520,13 +610,27 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         provider.wallet.publicKey.toBuffer(),
         Buffer.from(erc20AddressBytes),
       ],
-      program.programId,
+      program.programId
     );
 
     const currentBalance = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
     console.log("  💰 Current balance:", currentBalance.amount.toString());
+
+    const chainSignaturesProgram = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
+    );
+
+    const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("program-state")],
+      chainSignaturesProgram
+    );
+
+    const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      chainSignaturesProgram
+    );
 
     // =====================================================
     // STEP 2: DERIVE RECIPIENT ADDRESS
@@ -536,7 +640,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("global_vault_authority")],
-      program.programId,
+      program.programId
     );
 
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
@@ -544,7 +648,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       "root",
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
@@ -553,7 +657,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -561,7 +665,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const recipientAddress = CONFIG.WITHDRAWAL_RECIPIENT_ADDRESS;
     const recipientAddressBytes = Array.from(
-      Buffer.from(recipientAddress.slice(2), "hex"),
+      Buffer.from(recipientAddress.slice(2), "hex")
     );
 
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
@@ -645,6 +749,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
+    console.log(" requestId:", requestId);
+
+    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
+      program.programId
+    );
+
     // =====================================================
     // STEP 4: INITIATE WITHDRAWAL
     // =====================================================
@@ -657,12 +768,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         erc20AddressBytes,
         withdrawAmount,
         recipientAddressBytes,
-        txParams,
+        txParams
       )
-      .accounts({
+      .accountsStrict({
         authority: provider.wallet.publicKey,
+        requester: globalVaultAuthority,
+        pendingWithdrawal,
+        userBalance,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesState,
+        eventAuthority,
+        chainSignaturesProgram,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -670,16 +789,16 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     // Check balance was decremented
     const balanceAfterWithdraw = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
     console.log(
       "  💰 Balance after withdrawal:",
-      balanceAfterWithdraw.amount.toString(),
+      balanceAfterWithdraw.amount.toString()
     );
     const expectedBalanceAfterWithdraw =
       currentBalance.amount.sub(withdrawAmount);
     expect(balanceAfterWithdraw.amount.toString()).to.equal(
-      expectedBalanceAfterWithdraw.toString(),
+      expectedBalanceAfterWithdraw.toString()
     );
 
     // =====================================================
@@ -689,7 +808,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 5: Setting up event listeners...");
 
     const signer = new anchor.web3.PublicKey(
-      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
     // Start listeners AFTER the Solana tx so backfill starts from the tx hash
@@ -698,7 +817,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: withdrawTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -707,7 +826,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: withdrawTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -746,7 +865,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     if (signedTx.from?.toLowerCase() !== signerAddress.toLowerCase()) {
       throw new Error(
-        `Transaction from address mismatch! Expected ${signerAddress}, got ${signedTx.from}`,
+        `Transaction from address mismatch! Expected ${signerAddress}, got ${signedTx.from}`
       );
     }
 
@@ -757,7 +876,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     } catch (error: any) {
       console.error(
         "  ❌ Transaction failed:",
-        error.message || error.shortMessage || error,
+        error.message || error.shortMessage || error
       );
       throw error;
     }
@@ -774,7 +893,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance,
@@ -786,7 +905,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     // Check if withdrawal was successful by checking balance
     const finalBalance = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
 
     if (respondBidirectionalEvent.serializedOutput.length === 1) {
@@ -794,14 +913,14 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       if (!success) {
         console.log("  ⚠️ Transfer failed, balance refunded");
         expect(finalBalance.amount.toString()).to.equal(
-          withdrawAmount.toString(),
+          withdrawAmount.toString()
         );
         return;
       }
     } else {
       console.log("  ⚠️ Transaction reverted, balance refunded");
       expect(finalBalance.amount.toString()).to.equal(
-        withdrawAmount.toString(),
+        withdrawAmount.toString()
       );
       return;
     }
@@ -818,6 +937,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   });
 
   it("Should handle failed ERC20 withdrawal and refund balance", async function () {
+    this.timeout(TEST_TIMEOUT_MS);
     console.log("\n🚀 Starting Failed ERC20 Withdrawal Test\n");
 
     // =====================================================
@@ -827,7 +947,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("📍 Step 1: Checking existing balance...");
 
     const erc20AddressBytes = Array.from(
-      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex"),
+      Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
     );
 
     const [userBalance] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -836,11 +956,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         provider.wallet.publicKey.toBuffer(),
         Buffer.from(erc20AddressBytes),
       ],
-      program.programId,
+      program.programId
     );
 
     const currentBalance = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
     console.log("  💰 Current balance:", currentBalance.amount.toString());
 
@@ -848,6 +968,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       console.log("  ⚠️ No balance to test withdrawal failure. Skipping test.");
       return;
     }
+
+    const chainSignaturesProgram = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
+    );
+
+    const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("program-state")],
+      chainSignaturesProgram
+    );
+
+    const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      chainSignaturesProgram
+    );
 
     // =====================================================
     // STEP 2: CREATE FAILING WITHDRAWAL
@@ -857,7 +991,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const recipientAddress = "0x0000000000000000000000000000000000000001";
     const recipientAddressBytes = Array.from(
-      Buffer.from(recipientAddress.slice(2), "hex"),
+      Buffer.from(recipientAddress.slice(2), "hex")
     );
 
     const withdrawAmount = currentBalance.amount;
@@ -865,7 +999,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     // Derive the MPC signer address first
     const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("global_vault_authority")],
-      program.programId,
+      program.programId
     );
 
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
@@ -873,7 +1007,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       "root",
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
@@ -882,7 +1016,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
       CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -896,7 +1030,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       "  📊 Using old nonce:",
       oldNonce,
       "(current:",
-      currentNonce + ")",
+      currentNonce + ")"
     );
 
     // Build withdrawal transaction with OLD nonce
@@ -951,6 +1085,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
+    console.log(" requestId:", requestId);
+
+    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
+      program.programId
+    );
+
     // =====================================================
     // STEP 3: INITIATE WITHDRAWAL
     // =====================================================
@@ -965,12 +1106,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         erc20AddressBytes,
         withdrawAmount,
         recipientAddressBytes,
-        txParams,
+        txParams
       )
-      .accounts({
+      .accountsStrict({
         authority: provider.wallet.publicKey,
+        requester: globalVaultAuthority,
+        pendingWithdrawal,
+        userBalance,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesState,
+        eventAuthority,
+        chainSignaturesProgram,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -978,11 +1127,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     // Check balance was decremented optimistically
     const balanceAfterWithdraw = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
     console.log(
       "  💰 Balance after withdrawal:",
-      balanceAfterWithdraw.amount.toString(),
+      balanceAfterWithdraw.amount.toString()
     );
     expect(balanceAfterWithdraw.amount.toString()).to.equal("0");
 
@@ -993,7 +1142,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 4: Setting up event listeners...");
 
     const signer = new anchor.web3.PublicKey(
-      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
     // Start listeners AFTER the Solana tx so backfill starts from the tx hash
@@ -1002,7 +1151,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: withdrawTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -1011,7 +1160,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       requestId,
       signer,
       afterSignature: withdrawTx,
-      timeoutMs: 300_000,
+      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
       backfillIntervalMs: 15_000,
       healthCheckIntervalMs: 15_000,
     });
@@ -1074,7 +1223,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance,
@@ -1091,11 +1240,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 9: Verifying balance was refunded...");
 
     const finalBalance = await program.account.userErc20Balance.fetch(
-      userBalance,
+      userBalance
     );
 
     expect(finalBalance.amount.toString()).to.equal(
-      balanceBeforeWithdraw.toString(),
+      balanceBeforeWithdraw.toString()
     );
 
     console.log("  ✅ Balance refunded:", finalBalance.amount.toString());
@@ -1111,11 +1260,11 @@ async function getDepositAccounts(
   program: Program<SolanaCoreContracts>,
   provider: anchor.AnchorProvider,
   requestIdBytes: number[],
-  erc20AddressBytes: number[],
+  erc20AddressBytes: number[]
 ) {
   const [pendingDeposit] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("pending_erc20_deposit"), Buffer.from(requestIdBytes)],
-    program.programId,
+    program.programId
   );
 
   const [userBalance] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -1124,15 +1273,30 @@ async function getDepositAccounts(
       provider.wallet.publicKey.toBuffer(),
       Buffer.from(erc20AddressBytes),
     ],
-    program.programId,
+    program.programId
+  );
+
+  const chainSignaturesProgram = new anchor.web3.PublicKey(
+    CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
   );
 
   const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("program-state")],
-    new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
+    chainSignaturesProgram
   );
 
-  return { pendingDeposit, userBalance, chainSignaturesState };
+  const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("__event_authority")],
+    chainSignaturesProgram
+  );
+
+  return {
+    pendingDeposit,
+    userBalance,
+    chainSignaturesProgram,
+    chainSignaturesState,
+    eventAuthority,
+  };
 }
 
 /**
@@ -1140,7 +1304,7 @@ async function getDepositAccounts(
  */
 async function getInitialBalance(
   program: Program<SolanaCoreContracts>,
-  userBalance: anchor.web3.PublicKey,
+  userBalance: anchor.web3.PublicKey
 ): Promise<BN> {
   try {
     const account = await program.account.userErc20Balance.fetch(userBalance);

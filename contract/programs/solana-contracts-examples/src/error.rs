@@ -26,4 +26,6 @@ pub enum ErrorCode {
     VaultOutputNotFound,
     #[msg("Provided inputs do not cover requested amount + fee")]
     InsufficientInputs,
+    #[msg("Invalid chain signatures program id")]
+    InvalidChainSignaturesProgram,
 }

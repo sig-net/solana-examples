@@ -13,7 +13,7 @@ pub use constants::*;
 pub use contexts::*;
 pub use state::*;
 
-declare_id!("DzSqpUpL8DJ1z3wNAFnPMKRPZQL1oEZrwwSnXkA4w8Ce");
+declare_id!("DLJ41RXS8NE2nLPQWRMZHhjKDgSYgxJxECR1NtQEUkvR");
 
 #[program]
 pub mod solana_core_contracts {
@@ -22,9 +22,11 @@ pub mod solana_core_contracts {
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
         mpc_root_public_key: [u8; 64],
+        chain_signatures_program_id: Pubkey,
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
         config.mpc_root_public_key = mpc_root_public_key;
+        config.chain_signatures_program_id = chain_signatures_program_id;
         Ok(())
     }
 
@@ -54,12 +56,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
     ) -> Result<()> {
-        instructions::erc20_vault::claim_erc20(
-            ctx,
-            request_id,
-            serialized_output,
-            signature,
-        )
+        instructions::erc20_vault::claim_erc20(ctx, request_id, serialized_output, signature)
     }
 
     pub fn withdraw_erc20(
@@ -111,12 +108,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
     ) -> Result<()> {
-        instructions::btc_vault::claim_btc(
-            ctx,
-            request_id,
-            serialized_output,
-            signature,
-        )
+        instructions::btc_vault::claim_btc(ctx, request_id, serialized_output, signature)
     }
 
     pub fn withdraw_btc(
@@ -149,5 +141,16 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
         )
+    }
+
+    pub fn update_config(
+        ctx: Context<UpdateVaultConfig>,
+        mpc_root_public_key: [u8; 64],
+        chain_signatures_program_id: Pubkey,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.mpc_root_public_key = mpc_root_public_key;
+        config.chain_signatures_program_id = chain_signatures_program_id;
+        Ok(())
     }
 }

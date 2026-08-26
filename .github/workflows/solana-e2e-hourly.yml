@@ -1,4 +1,4 @@
-name: Solana E2E Hourly
+name: ERC20 E2E Hourly
 
 on:
   workflow_dispatch:
@@ -8,14 +8,24 @@ on:
         required: false
         default: xiangyi/solana_e2e
         type: string
+      mpc_network:
+        description: MPC network to test against
+        required: false
+        default: testnet
+        type: choice
+        options:
+          - dev
+          - testnet
   schedule:
     - cron: "17 * * * *"
 
 permissions:
   contents: read
 
+# Shared with the deploy workflow: the suite must not run while the program is
+# being replaced underneath it.
 concurrency:
-  group: solana-e2e-hourly-${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
+  group: solana-devnet-program
   cancel-in-progress: false
 
 jobs:
@@ -26,14 +36,14 @@ jobs:
       ANCHOR_VERSION: 0.31.1
       SOLANA_VERSION: 2.2.20
       TARGET_REF: ${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
+      SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
-      CHAIN_SIGNATURES_PROGRAM_ID: ${{ secrets.CHAIN_SIGNATURES_PROGRAM_ID }}
-      MPC_ROOT_PRIVATE_KEY: ${{ secrets.MPC_ROOT_PRIVATE_KEY }}
-      MPC_ROOT_PUBLIC_KEY: ${{ secrets.MPC_ROOT_PUBLIC_KEY }}
+      # The chain-signatures program and the MPC root key are both resolved
+      # from signet.js for this network, so neither is configured here.
+      MPC_NETWORK: ${{ inputs.mpc_network || 'testnet' }}
       SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
       SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
       DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
-      BITCOIN_NETWORK: regtest
     defaults:
       run:
         shell: bash
@@ -50,8 +60,6 @@ jobs:
           set -euo pipefail
 
           required=(
-            INFURA_API_KEY
-            CHAIN_SIGNATURES_PROGRAM_ID
             SOLANA_RPC_URL
             SOLANA_PRIVATE_KEY
           )
@@ -63,8 +71,8 @@ jobs:
             fi
           done
 
-          if [ -z "${MPC_ROOT_PRIVATE_KEY:-}" ] && [ -z "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
-            echo "::error::Set either MPC_ROOT_PRIVATE_KEY or MPC_ROOT_PUBLIC_KEY"
+          if [ -z "${SEPOLIA_RPC_URL:-}" ] && [ -z "${INFURA_API_KEY:-}" ]; then
+            echo "::error::Set either SEPOLIA_RPC_URL or INFURA_API_KEY"
             exit 1
           fi
 
@@ -125,31 +133,32 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.config/solana"
+
+          # The test wallet. Anchor.toml's provider.wallet points at this file,
+          # so it is what the suite signs and pays with. This job deliberately
+          # holds no key with upgrade authority over the program.
           printf '%s' "${SOLANA_PRIVATE_KEY}" > "${HOME}/.config/solana/id.json"
           chmod 600 "${HOME}/.config/solana/id.json"
+
           solana config set --keypair "${HOME}/.config/solana/id.json"
           solana config set --url devnet
-          solana address
-          solana balance || true
+
+          echo "test wallet: $(solana address -k "${HOME}/.config/solana/id.json") ($(solana balance -k "${HOME}/.config/solana/id.json" || echo unknown))"
 
       - name: Write contract environment file
         run: |
           set -euo pipefail
           {
-            printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
-            printf 'CHAIN_SIGNATURES_PROGRAM_ID=%s\n' "${CHAIN_SIGNATURES_PROGRAM_ID}"
-            printf 'SOLANA_RPC_URL=%s\n' "${SOLANA_RPC_URL}"
-            printf 'SOLANA_PRIVATE_KEY=%s\n' "${SOLANA_PRIVATE_KEY}"
+            printf 'MPC_NETWORK=%s\n' "${MPC_NETWORK}"
+
+            if [ -n "${SEPOLIA_RPC_URL:-}" ]; then
+              printf 'SEPOLIA_RPC_URL=%s\n' "${SEPOLIA_RPC_URL}"
+            fi
+
+            if [ -n "${INFURA_API_KEY:-}" ]; then
+              printf 'INFURA_API_KEY=%s\n' "${INFURA_API_KEY}"
+            fi
             printf 'DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER=%s\n' "${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}"
-            printf 'BITCOIN_NETWORK=%s\n' "${BITCOIN_NETWORK}"
-
-            if [ -n "${MPC_ROOT_PRIVATE_KEY:-}" ]; then
-              printf 'MPC_ROOT_PRIVATE_KEY=%s\n' "${MPC_ROOT_PRIVATE_KEY}"
-            fi
-
-            if [ -n "${MPC_ROOT_PUBLIC_KEY:-}" ]; then
-              printf 'MPC_ROOT_PUBLIC_KEY=%s\n' "${MPC_ROOT_PUBLIC_KEY}"
-            fi
           } > .env
 
       - name: Install JavaScript dependencies
@@ -158,24 +167,45 @@ jobs:
       - name: Build Solana program
         run: anchor build
 
-      - name: Deploy to devnet
-        run: anchor deploy --provider.cluster devnet
+      - name: Compare deployed program against this ref
+        run: |
+          set -euo pipefail
+
+          program_id="$(jq -r .address target/idl/solana_core_contracts.json)"
+          echo "program: ${program_id}"
+
+          solana program dump "${program_id}" /tmp/deployed.so \
+            --url "${SOLANA_RPC_URL}" > /dev/null
+
+          # `solana program dump` pads to the allocated length; compare only the
+          # meaningful bytes.
+          truncate -s "$(stat -c %s target/deploy/solana_core_contracts.so)" /tmp/deployed.so
+
+          if cmp -s /tmp/deployed.so target/deploy/solana_core_contracts.so; then
+            echo "DEPLOY_STATE=matches this ref" >> "${GITHUB_ENV}"
+          else
+            echo "DEPLOY_STATE=differs from this ref" >> "${GITHUB_ENV}"
+            echo "::warning::The deployed program does not match a build of this ref. This job tests the deployed bytecode; run the 'Deploy Solana Program (devnet)' workflow to update it."
+          fi
 
       - name: Check formatting
         run: yarn lint
 
       - name: Run ERC20 end-to-end test
-        run: anchor test --skip-build --skip-deploy
+        run: |
+          anchor run test-erc20 --provider.cluster "${SOLANA_RPC_URL}"
 
       - name: Write job summary
         if: always()
         run: |
           {
-            echo "## Solana E2E Hourly"
+            echo "## ERC20 E2E Hourly"
             echo
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Anchor: \`${ANCHOR_VERSION}\`"
             echo "- Solana/Agave: \`${SOLANA_VERSION}\`"
+            echo "- MPC network: \`${MPC_NETWORK}\`"
+            echo "- Deployed program: \`${DEPLOY_STATE:-unknown}\`"
+            echo "- Test wallet: \`$(solana address -k "${HOME}/.config/solana/id.json" 2>/dev/null || echo unknown)\`"
             echo "- Local chain-signature server disabled: \`${DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER}\`"
-            echo "- Bitcoin network: \`${BITCOIN_NETWORK}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

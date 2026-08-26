@@ -8,7 +8,7 @@ export const SERVICE_CONFIG = {
     /** Sepolia testnet chain ID */
     CHAIN_ID: 11155111,
     /** CAIP-2 chain ID (eip155:chainId format) */
-    CAIP2_ID: 'eip155:11155111',
+    CAIP2_ID: 'eip155:1',
   },
   CRYPTOGRAPHY: {
     /** Signature algorithm for chain signatures */

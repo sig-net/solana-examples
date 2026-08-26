@@ -49,7 +49,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
     const balanceAfterDeposit = await fetchUserBalance(authority.publicKey);
     expect(balanceAfterDeposit.amount.toNumber()).to.equal(depositAmount);
     console.log(
-      `  ✓ User balance after deposit: ${balanceAfterDeposit.amount.toNumber()} sats`,
+      `  ✓ User balance after deposit: ${balanceAfterDeposit.amount.toNumber()} sats`
     );
 
     // Step 2: Build withdrawal plan
@@ -77,7 +77,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
         withdrawalPlan.btcInputs,
         withdrawalPlan.amount,
         withdrawalPlan.recipient.address,
-        withdrawalPlan.txParams,
+        withdrawalPlan.txParams
       )
       .accounts({
         authority: authority.publicKey,
@@ -92,23 +92,23 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
     const events = startBtcEventListeners(
       signatureRequestIds,
       withdrawalPlan.requestIdHex,
-      withdrawTx,
+      withdrawTx
     );
 
     // Verify balance was optimistically deducted
     const balanceAfterWithdraw = await fetchUserBalance(authority.publicKey);
     expect(balanceAfterWithdraw.amount.toNumber()).to.equal(
-      depositAmount - totalDebit,
+      depositAmount - totalDebit
     );
     console.log(
-      `  ✓ Balance after withdraw initiation: ${balanceAfterWithdraw.amount.toNumber()} sats (optimistically deducted)`,
+      `  ✓ Balance after withdraw initiation: ${balanceAfterWithdraw.amount.toNumber()} sats (optimistically deducted)`
     );
 
     // Step 5: Wait for MPC signatures
     console.log("  ⏳ Waiting for MPC signatures...");
     const signatureMap = await events.waitForSignatureMap();
     console.log(
-      `  ✓ Received ${signatureRequestIds.length} signature(s) from MPC`,
+      `  ✓ Received ${signatureRequestIds.length} signature(s) from MPC`
     );
 
     // Step 6: Build the withdrawal PSBT but do NOT broadcast it
@@ -118,7 +118,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       psbt,
       signatureMap,
       signatureRequestIds,
-      withdrawalPlan.globalVault.compressedPubkey,
+      withdrawalPlan.globalVault.compressedPubkey
     );
     const signedWithdrawTx = psbt.extractTransaction();
     const monitoredTxid = signedWithdrawTx.getId();
@@ -138,11 +138,11 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
     const derivedKeyHex = await CryptoUtils.deriveSigningKey(
       CONFIG.BITCOIN_WITHDRAW_PATH, // "root"
       withdrawalPlan.globalVault.pda.toString(),
-      CONFIG.MPC_ROOT_PRIVATE_KEY,
+      CONFIG.MPC_ROOT_PRIVATE_KEY
     );
     const spendingKey = ECPair.fromPrivateKey(
       Buffer.from(derivedKeyHex.slice(2), "hex"),
-      { network: bitcoin.networks.regtest },
+      { network: bitcoin.networks.regtest }
     );
 
     // Create external destination for the conflicting tx
@@ -206,7 +206,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       .completeWithdrawBtc(
         planRequestIdBytes(withdrawalPlan),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
+        readEvent.signature
       )
       .accounts({
         payer: provider.wallet.publicKey,
@@ -222,12 +222,12 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
     expect(balanceAfterComplete.amount.toNumber()).to.equal(depositAmount);
 
     console.log(
-      `  ✓ Balance after complete: ${balanceAfterComplete.amount.toNumber()} sats`,
+      `  ✓ Balance after complete: ${balanceAfterComplete.amount.toNumber()} sats`
     );
     console.log(
       `  ✓ Balance correctly refunded: ${
         depositAmount - totalDebit
-      } → ${depositAmount} sats`,
+      } → ${depositAmount} sats`
     );
   });
 });
