@@ -123,11 +123,18 @@ jobs:
 
           echo "PROGRAM_ID=${program_id}" >> "${GITHUB_ENV}"
 
+      # `anchor deploy` takes the program address from
+      # target/deploy/<name>-keypair.json, which target/ being gitignored means
+      # a clean runner does not have: it generates a fresh keypair and publishes
+      # a brand-new program instead of upgrading. Upgrading in place needs only
+      # the upgrade authority, so pin the address that was just verified.
       - name: Deploy
         run: |
-          anchor deploy \
-            --provider.cluster "${SOLANA_RPC_URL}" \
-            --provider.wallet "${HOME}/.config/solana/deployer.json"
+          solana program deploy target/deploy/solana_core_contracts.so \
+            --program-id "${PROGRAM_ID}" \
+            --upgrade-authority "${HOME}/.config/solana/deployer.json" \
+            --keypair "${HOME}/.config/solana/deployer.json" \
+            --url "${SOLANA_RPC_URL}"
 
       - name: Write job summary
         if: always()
