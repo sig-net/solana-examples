@@ -104,7 +104,13 @@ jobs:
 
           program_id="$(jq -r .address target/idl/solana_core_contracts.json)"
           deployer="$(solana address -k "${HOME}/.config/solana/deployer.json")"
-          authority="$(solana program show "${program_id}" --url "${SOLANA_RPC_URL}" | awk '/Authority/{print $2}')"
+          # --keypair is required even though this only reads: the deployer key
+          # lives at deployer.json, so there is no default signer for the CLI to
+          # resolve and `solana program show` errors out before printing.
+          authority="$(solana program show "${program_id}" \
+            --url "${SOLANA_RPC_URL}" \
+            --keypair "${HOME}/.config/solana/deployer.json" \
+            | awk '/Authority/{print $2}')"
 
           echo "program:   ${program_id}"
           echo "authority: ${authority}"
@@ -117,11 +123,18 @@ jobs:
 
           echo "PROGRAM_ID=${program_id}" >> "${GITHUB_ENV}"
 
+      # `anchor deploy` takes the program address from
+      # target/deploy/<name>-keypair.json, which target/ being gitignored means
+      # a clean runner does not have: it generates a fresh keypair and publishes
+      # a brand-new program instead of upgrading. Upgrading in place needs only
+      # the upgrade authority, so pin the address that was just verified.
       - name: Deploy
         run: |
-          anchor deploy \
-            --provider.cluster "${SOLANA_RPC_URL}" \
-            --provider.wallet "${HOME}/.config/solana/deployer.json"
+          solana program deploy target/deploy/solana_core_contracts.so \
+            --program-id "${PROGRAM_ID}" \
+            --upgrade-authority "${HOME}/.config/solana/deployer.json" \
+            --keypair "${HOME}/.config/solana/deployer.json" \
+            --url "${SOLANA_RPC_URL}"
 
       - name: Write job summary
         if: always()

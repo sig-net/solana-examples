@@ -274,11 +274,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         },
       }
     );
-    provider = new anchor.AnchorProvider(
-      tracedConnection,
-      envProvider.wallet,
-      anchor.AnchorProvider.defaultOptions()
-    );
+    // Anchor's default options confirm sends at "processed" while the
+    // connection above reads at "confirmed", so an account written by .rpc()
+    // can still be invisible to the very next fetch. Keep both levels aligned.
+    provider = new anchor.AnchorProvider(tracedConnection, envProvider.wallet, {
+      commitment: "confirmed",
+      preflightCommitment: "confirmed",
+    });
     anchor.setProvider(provider);
 
     program = anchor.workspace
