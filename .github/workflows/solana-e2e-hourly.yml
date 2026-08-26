@@ -6,7 +6,7 @@ on:
       target_ref:
         description: Git ref to test
         required: false
-        default: xiangyi/solana_e2e
+        default: main
         type: string
       mpc_network:
         description: MPC network to test against
@@ -35,7 +35,7 @@ jobs:
     env:
       ANCHOR_VERSION: 0.31.1
       SOLANA_VERSION: 2.2.20
-      TARGET_REF: ${{ inputs.target_ref || 'xiangyi/solana_e2e' }}
+      TARGET_REF: ${{ inputs.target_ref || 'main' }}
       SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
       # The chain-signatures program and the MPC root key are both resolved
