@@ -104,7 +104,13 @@ jobs:
 
           program_id="$(jq -r .address target/idl/solana_core_contracts.json)"
           deployer="$(solana address -k "${HOME}/.config/solana/deployer.json")"
-          authority="$(solana program show "${program_id}" --url "${SOLANA_RPC_URL}" | awk '/Authority/{print $2}')"
+          # --keypair is required even though this only reads: the deployer key
+          # lives at deployer.json, so there is no default signer for the CLI to
+          # resolve and `solana program show` errors out before printing.
+          authority="$(solana program show "${program_id}" \
+            --url "${SOLANA_RPC_URL}" \
+            --keypair "${HOME}/.config/solana/deployer.json" \
+            | awk '/Authority/{print $2}')"
 
           echo "program:   ${program_id}"
           echo "authority: ${authority}"
