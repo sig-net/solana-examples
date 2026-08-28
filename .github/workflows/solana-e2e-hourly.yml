@@ -1,4 +1,4 @@
-name: ERC20 E2E Hourly
+name: ERC20 E2E Scheduled
 
 on:
   workflow_dispatch:
@@ -11,13 +11,16 @@ on:
       mpc_network:
         description: MPC network to test against
         required: false
-        default: testnet
+        default: both
         type: choice
         options:
+          - both
           - dev
           - testnet
   schedule:
-    - cron: "17 * * * *"
+    # Both networks run one after another at roughly 50 minutes each, so an
+    # hourly cadence would queue runs behind each other. Every two hours fits.
+    - cron: "17 */2 * * *"
 
 permissions:
   contents: read
@@ -32,6 +35,16 @@ jobs:
   contract-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      # Scheduled runs cover both networks; a manual run can pick just one.
+      matrix:
+        mpc_network: ${{ (inputs.mpc_network == 'dev' && fromJSON('["dev"]')) || (inputs.mpc_network == 'testnet' && fromJSON('["testnet"]')) || fromJSON('["dev","testnet"]') }}
+      # Every leg signs with the same devnet wallet, and the Ethereum side of
+      # the suite is derived from that one key, so the legs share PDAs and a
+      # Sepolia nonce. They must run one at a time.
+      max-parallel: 1
+      # A failure on one network should not hide the result on the other.
+      fail-fast: false
     env:
       ANCHOR_VERSION: 0.31.1
       SOLANA_VERSION: 2.2.20
@@ -40,7 +53,7 @@ jobs:
       INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
       # The chain-signatures program and the MPC root key are both resolved
       # from signet.js for this network, so neither is configured here.
-      MPC_NETWORK: ${{ inputs.mpc_network || 'testnet' }}
+      MPC_NETWORK: ${{ matrix.mpc_network }}
       SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
       SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
       DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: "true"
@@ -199,7 +212,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## ERC20 E2E Hourly"
+            echo "## ERC20 E2E Scheduled"
             echo
             echo "- Ref: \`${TARGET_REF}\`"
             echo "- Anchor: \`${ANCHOR_VERSION}\`"
