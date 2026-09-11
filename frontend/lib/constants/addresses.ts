@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { utils as signetUtils } from 'signet.js';
+import { utils as signetUtils } from '@sig-net/signet.js';
 import { publicKeyToAddress } from 'viem/accounts';
 
 import { getClientEnv } from '@/lib/config/env.config';

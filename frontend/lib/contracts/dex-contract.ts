@@ -22,7 +22,7 @@ import {
 } from '@/lib/constants/addresses';
 import { isRateLimitError, wrapRateLimitError } from '@/lib/utils/rate-limit';
 
-import type { RSVSignature } from 'signet.js';
+import type { RSVSignature } from '@sig-net/signet.js';
 
 export { RateLimitError } from '@/lib/utils/rate-limit';
 

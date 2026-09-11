@@ -1,6 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
 import { toBytes } from 'viem';
-import { contracts } from 'signet.js';
+import { contracts } from '@sig-net/signet.js';
 
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 

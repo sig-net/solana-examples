@@ -5,7 +5,7 @@ import BN from "bn.js";
 import { SolanaCoreContracts } from "../target/types/solana_core_contracts";
 import { expect } from "chai";
 import { ethers } from "ethers";
-import { contracts, utils as signetUtils } from "signet.js";
+import { contracts, utils as signetUtils } from "@sig-net/signet.js";
 import { ChainSignatureServer } from "fakenet-signer";
 
 const { getRequestIdBidirectional } = contracts.solana;

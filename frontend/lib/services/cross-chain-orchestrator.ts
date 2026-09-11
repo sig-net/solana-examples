@@ -5,7 +5,7 @@ import {
   utils as anchorUtils,
 } from '@coral-xyz/anchor';
 import { type Hex, type PublicClient } from 'viem';
-import { contracts, type RSVSignature } from 'signet.js';
+import { contracts, type RSVSignature } from '@sig-net/signet.js';
 
 import { DexContract } from '@/lib/contracts/dex-contract';
 import type {
