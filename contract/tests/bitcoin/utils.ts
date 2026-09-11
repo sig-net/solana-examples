@@ -7,7 +7,7 @@ import { expect, AssertionError } from "chai";
 import * as bitcoin from "bitcoinjs-lib";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { ethers } from "ethers";
-import { contracts, utils as signetUtils } from "signet.js";
+import { contracts, utils as signetUtils } from "@sig-net/signet.js";
 import * as varuint from "varuint-bitcoin";
 import { Hex, hexToBytes } from "viem";
 import {

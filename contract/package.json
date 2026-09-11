@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@sig-net/signet.js": "^0.5.2",
     "bitcoin-core": "^5.0.0",
     "bitcoinjs-lib": "^7.0.0",
     "dotenv": "^17.2.3",
@@ -18,7 +19,6 @@
     "ethers": "^6.14.4",
     "fakenet-signer": "^1.7.1",
     "pino": "^10.1.0",
-    "signet.js": "^0.4.0",
     "tiny-secp256k1": "^2.2.4",
     "zod": "^4.1.11"
   },

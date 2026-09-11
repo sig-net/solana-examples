@@ -3,7 +3,10 @@ import { z } from "zod";
 import path from "path";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { CONFIG as FAKENET_CONFIG } from "fakenet-signer";
-import { constants as signetConstants, utils as signetUtils } from "signet.js";
+import {
+  constants as signetConstants,
+  utils as signetUtils,
+} from "@sig-net/signet.js";
 
 config({ path: path.resolve(process.cwd(), ".env") });
 
