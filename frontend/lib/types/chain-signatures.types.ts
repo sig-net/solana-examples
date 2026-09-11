@@ -1,4 +1,4 @@
-import type { RSVSignature } from 'signet.js';
+import type { RSVSignature } from '@sig-net/signet.js';
 
 export interface RespondBidirectionalData {
   serializedOutput: Buffer;
