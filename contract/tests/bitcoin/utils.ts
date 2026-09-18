@@ -962,8 +962,6 @@ export const getMpcRootAddressBytes = (): number[] => {
 
 const WAIT_FOR_EVENT_CONFIG = {
   timeoutMs: 300_000,
-  backfillIntervalMs: 15_000,
-  healthCheckIntervalMs: 15_000,
 };
 
 export type BtcEventListeners = {
@@ -976,7 +974,7 @@ export type BtcEventListeners = {
 
 /**
  * Starts waitForEvent listeners for per-input signatures and the aggregate respondBidirectional event.
- * Uses signet.js waitForEvent which combines WebSocket + polling backfill for reliable event detection.
+ * Uses signet.js waitForEvent backed by the shared HTTP event poller for reliable event detection.
  * Must be called before submitting the Solana transaction.
  */
 export function startBtcEventListeners(
@@ -1060,7 +1058,7 @@ export async function executeSyntheticDeposit(
     .rpc();
   await provider.connection.confirmTransaction(depositTx);
 
-  // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+  // Start HTTP pollers AFTER the Solana tx, using the tx hash as the cursor
   const events = startBtcEventListeners(
     signatureRequestIds,
     requestIdHex,

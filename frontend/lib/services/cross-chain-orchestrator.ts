@@ -154,8 +154,8 @@ export class CrossChainOrchestrator {
         console.log(`[${op}] Initial Solana tx: ${initialSolanaTxHash}`);
       }
 
-      // Set up event listeners AFTER initial tx, using the tx hash as cursor.
-      // waitForEvent's backfill mechanism catches any events emitted in the gap.
+      // Set up event listeners AFTER initial tx, using the tx hash as the HTTP
+      // poller's cursor. The shared poller catches events emitted in the gap.
       const cursorSignature = initialSolanaTxHash ?? afterSignature;
       console.log(`[${op}] Setting up event listeners...`);
       const eventListeners = await this.setupEventListeners(

@@ -34,7 +34,7 @@ QueryClientProvider (TanStack Query)
 
 **Service Layer** (`lib/services/`):
 
-- `CrossChainOrchestrator` - Coordinates MPC signature events with timeouts and backfill
+- `CrossChainOrchestrator` - Coordinates MPC signature events with timeouts and HTTP polling
 - `DepositService` / `WithdrawalService` - Build Solana instructions for bridge operations
 - `TokenBalanceService` - On-chain balance queries
 
@@ -71,7 +71,7 @@ Status tracked in Redis via `tx:{trackingId}` keys, polled by frontend every 2s.
 1. User sends ERC20 to derived deposit address
 2. `/api/notify-deposit` spawns background handler via `after()`
 3. Relayer polls for token arrival → gas topup if needed → builds EVM tx
-4. Waits for MPC signature event (30s backfill at timeout)
+4. Waits for MPC signature event through the shared HTTP poller
 5. Submits to Ethereum → calls `claimErc20` on Solana
 
 **Withdrawal (Solana → EVM):**

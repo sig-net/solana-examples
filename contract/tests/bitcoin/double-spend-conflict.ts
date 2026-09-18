@@ -88,7 +88,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       .rpc();
     await provider.connection.confirmTransaction(withdrawTx);
 
-    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+    // Start HTTP pollers AFTER the Solana tx, using the tx hash as the cursor
     const events = startBtcEventListeners(
       signatureRequestIds,
       withdrawalPlan.requestIdHex,

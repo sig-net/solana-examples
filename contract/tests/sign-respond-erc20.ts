@@ -490,15 +490,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
-    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+    // Start HTTP pollers AFTER the Solana tx, using the tx hash as the cursor
     const signaturePromise = chainSignatureContract.waitForEvent({
       eventName: "signatureRespondedEvent",
       requestId,
       signer,
       afterSignature: depositTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
     const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
       eventName: "respondBidirectionalEvent",
@@ -506,8 +504,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       signer,
       afterSignature: depositTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
 
     // =====================================================
@@ -813,15 +809,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
-    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+    // Start HTTP pollers AFTER the Solana tx, using the tx hash as the cursor
     const signaturePromise = chainSignatureContract.waitForEvent({
       eventName: "signatureRespondedEvent",
       requestId,
       signer,
       afterSignature: withdrawTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
     const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
       eventName: "respondBidirectionalEvent",
@@ -829,8 +823,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       signer,
       afterSignature: withdrawTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
 
     // =====================================================
@@ -1147,15 +1139,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
-    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+    // Start HTTP pollers AFTER the Solana tx, using the tx hash as the cursor
     const signaturePromise = chainSignatureContract.waitForEvent({
       eventName: "signatureRespondedEvent",
       requestId,
       signer,
       afterSignature: withdrawTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
     const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
       eventName: "respondBidirectionalEvent",
@@ -1163,8 +1153,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       signer,
       afterSignature: withdrawTx,
       timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
     });
 
     // =====================================================
