@@ -112,7 +112,7 @@ pub fn deposit_btc(
         1,
         &path,
         "ECDSA",
-        "bitcoin",
+        "",
         "",
     );
 
@@ -178,7 +178,7 @@ pub fn deposit_btc(
         1,
         path,
         "ECDSA".to_string(),
-        "bitcoin".to_string(),
+        "".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,
@@ -353,7 +353,7 @@ pub fn withdraw_btc(
         1,
         &path,
         "ECDSA",
-        "bitcoin",
+        "",
         "",
     );
 
@@ -411,7 +411,7 @@ pub fn withdraw_btc(
         1,
         path,
         "ECDSA".to_string(),
-        "bitcoin".to_string(),
+        "".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,

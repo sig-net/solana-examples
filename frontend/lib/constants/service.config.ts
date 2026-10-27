@@ -14,7 +14,7 @@ export const SERVICE_CONFIG = {
     /** Signature algorithm for chain signatures */
     SIGNATURE_ALGORITHM: 'ECDSA',
     /** Target blockchain for signatures */
-    TARGET_BLOCKCHAIN: 'ethereum',
+    TARGET_BLOCKCHAIN: '',
     /** Root path for withdrawal operations */
     WITHDRAWAL_ROOT_PATH: 'root',
   },

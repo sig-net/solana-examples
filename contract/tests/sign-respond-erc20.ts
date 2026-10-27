@@ -426,7 +426,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       keyVersion: CONFIG.KEY_VERSION,
       path,
       algo: "ECDSA",
-      dest: "ethereum",
+      dest: "",
       params: "",
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
@@ -746,7 +746,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       keyVersion: CONFIG.KEY_VERSION,
       path: "root", // HARDCODED_ROOT_PATH
       algo: "ECDSA",
-      dest: "ethereum",
+      dest: "",
       params: "",
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
@@ -1082,7 +1082,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       keyVersion: CONFIG.KEY_VERSION,
       path: "root", // HARDCODED_ROOT_PATH
       algo: "ECDSA",
-      dest: "ethereum",
+      dest: "",
       params: "",
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
