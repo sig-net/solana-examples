@@ -42,14 +42,17 @@ class EthereumUtils {
   async buildTransferTransaction(
     from: string,
     to: string,
-    amount: bigint
+    amount: bigint,
+    overrides: { nonce?: number; gasLimit?: bigint } = {}
   ): Promise<{
     callData: string;
     txParams: TransactionParams;
     rlpEncodedTx: string;
     nonce: number;
+    gasLimit: bigint;
   }> {
-    const nonce = await this.provider.getTransactionCount(from);
+    const nonce =
+      overrides.nonce ?? (await this.provider.getTransactionCount(from));
 
     const transferInterface = new ethers.Interface([
       "function transfer(address to, uint256 amount) returns (bool)",
@@ -65,14 +68,16 @@ class EthereumUtils {
     const maxPriorityFeePerGas =
       feeData.maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
 
-    const gasEstimate = await this.provider.estimateGas({
-      from,
-      to: CONFIG.USDC_ADDRESS_SEPOLIA,
-      data: callData,
-    });
-
-    const gasLimit =
-      (gasEstimate * BigInt(100 + CONFIG.GAS_BUFFER_PERCENT)) / BigInt(100);
+    let gasLimit = overrides.gasLimit;
+    if (gasLimit === undefined) {
+      const gasEstimate = await this.provider.estimateGas({
+        from,
+        to: CONFIG.USDC_ADDRESS_SEPOLIA,
+        data: callData,
+      });
+      gasLimit =
+        (gasEstimate * BigInt(100 + CONFIG.GAS_BUFFER_PERCENT)) / BigInt(100);
+    }
 
     // Create transaction params
     const txParams: TransactionParams = {
@@ -104,6 +109,7 @@ class EthereumUtils {
       txParams,
       rlpEncodedTx: ethers.hexlify(rlpEncodedTx),
       nonce,
+      gasLimit,
     };
   }
 
@@ -409,27 +415,26 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
     );
 
-    const { callData, txParams, rlpEncodedTx, nonce } =
-      await ethUtils.buildTransferTransaction(
-        derivedAddress,
-        signerAddress,
-        amountBigInt
-      );
-
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
-    // Generate request ID
-    const requestId = contracts.solana.getRequestIdBidirectional({
-      sender: vaultAuthority.toString(),
-      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
-      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
-      keyVersion: CONFIG.KEY_VERSION,
+    const {
+      requestId,
+      requestIdBytes,
+      built: { callData, txParams, nonce },
+    } = await findFreeRequest(
+      provider.connection,
+      program.programId,
+      "pending_erc20_deposit",
+      vaultAuthority,
       path,
-      algo: "ECDSA",
-      dest: "",
-      params: "",
-    });
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
+      (gasLimit) =>
+        ethUtils.buildTransferTransaction(
+          derivedAddress,
+          signerAddress,
+          amountBigInt,
+          { gasLimit }
+        )
+    );
     console.log(" requestId:", requestId);
 
     // =====================================================
@@ -684,79 +689,27 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const withdrawAmount = currentBalance.amount.div(new BN(2));
     const withdrawAmountBigInt = BigInt(withdrawAmount.toString());
 
-    // Get nonce for MPC signer (the transaction will be FROM this address)
-    const ethprovider = ethUtils.getProvider();
-    const nonce = await ethprovider.getTransactionCount(signerAddress);
-
-    // Build withdrawal transaction
-    const transferInterface = new ethers.Interface([
-      "function transfer(address to, uint256 amount) returns (bool)",
-    ]);
-    const callData = transferInterface.encodeFunctionData("transfer", [
-      recipientAddress,
-      withdrawAmountBigInt,
-    ]);
-
-    // Get gas prices
-    const feeData = await ethprovider.getFeeData();
-    const maxFeePerGas =
-      feeData.maxFeePerGas || ethers.parseUnits("30", "gwei");
-    const maxPriorityFeePerGas =
-      feeData.maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
-
-    // Estimate gas
-    const gasEstimate = await ethprovider.estimateGas({
-      from: signerAddress,
-      to: CONFIG.USDC_ADDRESS_SEPOLIA,
-      data: callData,
-    });
-
-    const gasLimit =
-      (gasEstimate * BigInt(100 + CONFIG.GAS_BUFFER_PERCENT)) / BigInt(100);
-
-    const txParams: TransactionParams = {
-      nonce: new BN(nonce),
-      value: new BN(0),
-      maxPriorityFeePerGas: new BN(maxPriorityFeePerGas.toString()),
-      maxFeePerGas: new BN(maxFeePerGas.toString()),
-      gasLimit: new BN(gasLimit.toString()),
-      chainId: new BN(CONFIG.SEPOLIA_CHAIN_ID),
-    };
-
-    // Build RLP-encoded transaction
-    const tempTx = {
-      type: 2,
-      chainId: CONFIG.SEPOLIA_CHAIN_ID,
-      nonce,
-      maxPriorityFeePerGas,
-      maxFeePerGas,
-      gasLimit,
-      to: CONFIG.USDC_ADDRESS_SEPOLIA,
-      value: BigInt(0),
-      data: callData,
-    };
-
-    const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
-
-    // Generate request ID - using HARDCODED_ROOT_PATH
-    const requestId = getRequestIdBidirectional({
-      sender: globalVaultAuthority.toString(),
-      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
-      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
-      keyVersion: CONFIG.KEY_VERSION,
-      path: "root", // HARDCODED_ROOT_PATH
-      algo: "ECDSA",
-      dest: "",
-      params: "",
-    });
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
-
-    console.log(" requestId:", requestId);
-
-    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
-      program.programId
+    // The transaction is FROM the MPC signer, under the hardcoded root path.
+    const {
+      requestId,
+      requestIdBytes,
+      pendingPda: pendingWithdrawal,
+      built: { callData, txParams, nonce },
+    } = await findFreeRequest(
+      provider.connection,
+      program.programId,
+      "pending_erc20_withdrawal",
+      globalVaultAuthority,
+      "root",
+      (gasLimit) =>
+        ethUtils.buildTransferTransaction(
+          signerAddress,
+          recipientAddress,
+          withdrawAmountBigInt,
+          { gasLimit }
+        )
     );
+    console.log(" requestId:", requestId);
 
     // =====================================================
     // STEP 4: INITIATE WITHDRAWAL
@@ -1035,64 +988,28 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       currentNonce + ")"
     );
 
-    // Build withdrawal transaction with OLD nonce
-    const transferInterface = new ethers.Interface([
-      "function transfer(address to, uint256 amount) returns (bool)",
-    ]);
-    const callData = transferInterface.encodeFunctionData("transfer", [
-      recipientAddress,
-      withdrawAmount.toString(),
-    ]);
-
-    const feeData = await ethprovider.getFeeData();
-    const maxFeePerGas =
-      feeData.maxFeePerGas || ethers.parseUnits("30", "gwei");
-    const maxPriorityFeePerGas =
-      feeData.maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
-
-    const gasEstimate = 100000;
-
-    const txParams: TransactionParams = {
-      nonce: new BN(oldNonce), // OLD NONCE
-      value: new BN(0),
-      maxPriorityFeePerGas: new BN(maxPriorityFeePerGas.toString()),
-      maxFeePerGas: new BN(maxFeePerGas.toString()),
-      gasLimit: new BN(gasEstimate.toString()),
-      chainId: new BN(CONFIG.SEPOLIA_CHAIN_ID),
-    };
-
-    const tempTx = {
-      type: 2,
-      chainId: CONFIG.SEPOLIA_CHAIN_ID,
-      nonce: oldNonce,
-      maxPriorityFeePerGas,
-      maxFeePerGas,
-      gasLimit: BigInt(gasEstimate),
-      to: CONFIG.USDC_ADDRESS_SEPOLIA,
-      value: BigInt(0),
-      data: callData,
-    };
-
-    const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
-
-    const requestId = getRequestIdBidirectional({
-      sender: globalVaultAuthority.toString(),
-      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
-      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
-      keyVersion: CONFIG.KEY_VERSION,
-      path: "root", // HARDCODED_ROOT_PATH
-      algo: "ECDSA",
-      dest: "",
-      params: "",
-    });
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
-
-    console.log(" requestId:", requestId);
-
-    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
-      program.programId
+    // Built with the old nonce and a fixed gas limit, since estimating gas
+    // for a transfer the signer cannot make would fail.
+    const {
+      requestId,
+      requestIdBytes,
+      pendingPda: pendingWithdrawal,
+      built: { callData, txParams },
+    } = await findFreeRequest(
+      provider.connection,
+      program.programId,
+      "pending_erc20_withdrawal",
+      globalVaultAuthority,
+      "root",
+      (gasLimit = BigInt(100000)) =>
+        ethUtils.buildTransferTransaction(
+          signerAddress,
+          recipientAddress,
+          BigInt(withdrawAmount.toString()),
+          { nonce: oldNonce, gasLimit }
+        )
     );
+    console.log(" requestId:", requestId);
 
     // =====================================================
     // STEP 3: INITIATE WITHDRAWAL
@@ -1299,6 +1216,69 @@ async function getDepositAccounts(
     chainSignaturesState,
     eventAuthority,
   };
+}
+
+/** Gas limit bumps tried before giving up on a free request id. */
+const MAX_GAS_LIMIT_BUMPS = 16;
+
+/**
+ * Build the request from `sender` under `path` and derive its request id and
+ * pending account, retrying at a higher gas limit while that account exists.
+ *
+ * The request id hashes the Ethereum transaction, whose nonce only moves once
+ * that transaction is mined. A run that gives up before broadcasting leaves a
+ * pending account that every later run derives again and fails to `init`.
+ * Raising the gas limit by one changes the hash without changing what the
+ * transaction does.
+ */
+async function findFreeRequest<
+  T extends { rlpEncodedTx: string; gasLimit: bigint }
+>(
+  connection: Connection,
+  programId: anchor.web3.PublicKey,
+  seed: string,
+  sender: anchor.web3.PublicKey,
+  path: string,
+  build: (gasLimit?: bigint) => Promise<T>
+): Promise<{
+  requestId: string;
+  requestIdBytes: number[];
+  pendingPda: anchor.web3.PublicKey;
+  built: T;
+}> {
+  let gasLimit: bigint | undefined;
+  for (let bump = 0; bump <= MAX_GAS_LIMIT_BUMPS; bump++) {
+    const built = await build(gasLimit);
+    const requestId = getRequestIdBidirectional({
+      sender: sender.toString(),
+      payload: Array.from(ethers.getBytes(built.rlpEncodedTx)),
+      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
+      keyVersion: CONFIG.KEY_VERSION,
+      path,
+      algo: "ECDSA",
+      dest: "",
+      params: "",
+    });
+    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
+    const [pendingPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from(seed), Buffer.from(requestIdBytes)],
+      programId
+    );
+    if (!(await connection.getAccountInfo(pendingPda))) {
+      if (bump > 0) {
+        console.log(`  ⚠️ Gas limit +${bump} gives a free request id`);
+      }
+      return { requestId, requestIdBytes, pendingPda, built };
+    }
+    // An earlier run never finished it: the MPC did not sign in time, or at all.
+    console.log(
+      `  ⚠️ Request ${requestId} is still open at ${pendingPda.toBase58()}, bumping the gas limit`
+    );
+    gasLimit = built.gasLimit + BigInt(1);
+  }
+  throw new Error(
+    `No free request id within ${MAX_GAS_LIMIT_BUMPS} gas limit bumps`
+  );
 }
 
 /**
