@@ -35,8 +35,11 @@ jobs:
   contract-e2e:
     runs-on: ubuntu-latest
     # Three cases per network, each waiting on Sepolia finality (15-20 minutes),
-    # plus a 10 minute build.
-    timeout-minutes: 100
+    # plus a 10 minute build. When the MPC never answers, every case waits the
+    # full 30 minute event budget, so the leg takes ~100 minutes; the limit
+    # leaves room for that so mocha still reports the failures instead of the
+    # job being cancelled.
+    timeout-minutes: 130
     strategy:
       # Scheduled runs cover both networks; a manual run can pick just one.
       matrix:
