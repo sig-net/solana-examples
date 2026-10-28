@@ -13,8 +13,8 @@ export const SERVICE_CONFIG = {
   CRYPTOGRAPHY: {
     /** Signature algorithm for chain signatures */
     SIGNATURE_ALGORITHM: 'ECDSA',
-    /** Target blockchain for signatures */
-    TARGET_BLOCKCHAIN: 'ethereum',
+    /** Deprecated `dest` field of a request, kept blank; the target chain is `ETHEREUM.CAIP2_ID` */
+    DEST: '',
     /** Root path for withdrawal operations */
     WITHDRAWAL_ROOT_PATH: 'root',
   },

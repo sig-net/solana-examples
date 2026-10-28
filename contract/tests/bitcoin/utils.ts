@@ -383,7 +383,7 @@ const buildTransaction = (
     keyVersion: CONFIG.KEY_VERSION,
     path: requestIdParams.path,
     algo: "ECDSA",
-    dest: "bitcoin",
+    dest: "",
     params: "",
   }) as Hex;
 
@@ -526,7 +526,7 @@ export const composeWithdrawalPlan = (params: {
 
 // Constants for Bitcoin Chain Signatures
 const CHAIN_SIG_ALGO = "ECDSA";
-const CHAIN_SIG_DEST = "bitcoin";
+const CHAIN_SIG_DEST = "";
 const CHAIN_SIG_PARAMS = "";
 
 type RequestIdComputationParams = {

@@ -57,7 +57,7 @@ pub fn deposit_erc20(
         1, // key_version
         &path,
         "ECDSA",
-        "ethereum",
+        "",
         "",
     );
 
@@ -125,7 +125,7 @@ pub fn deposit_erc20(
         1, // key_version
         path,
         "ECDSA".to_string(),
-        "ethereum".to_string(),
+        "".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,
@@ -235,7 +235,7 @@ pub fn withdraw_erc20(
         1, // key_version
         &path,
         "ECDSA",
-        "ethereum",
+        "",
         "",
     );
 
@@ -302,7 +302,7 @@ pub fn withdraw_erc20(
         1, // key_version
         path,
         "ECDSA".to_string(),
-        "ethereum".to_string(),
+        "".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,
