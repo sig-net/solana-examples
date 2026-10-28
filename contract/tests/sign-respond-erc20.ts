@@ -891,9 +891,9 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n🎉 ERC20 withdrawal flow completed successfully!");
   });
 
-  it("Should handle failed ERC20 withdrawal and refund balance", async function () {
+  it("Should refund a withdrawal whose nonce another withdrawal takes", async function () {
     this.timeout(TEST_TIMEOUT_MS);
-    console.log("\n🚀 Starting Failed ERC20 Withdrawal Test\n");
+    console.log("\n🚀 Starting Nonce Conflict Withdrawal Test\n");
 
     // =====================================================
     // STEP 1: CHECK EXISTING BALANCE
@@ -919,8 +919,9 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     console.log("  💰 Current balance:", currentBalance.amount.toString());
 
-    if (currentBalance.amount.eq(new BN(0))) {
-      console.log("  ⚠️ No balance to test withdrawal failure. Skipping test.");
+    // Each withdrawal takes half, so the balance has to split in two.
+    if (currentBalance.amount.lt(new BN(2))) {
+      console.log("  ⚠️ Balance too small for two withdrawals. Skipping test.");
       return;
     }
 
@@ -938,20 +939,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       chainSignaturesProgram
     );
 
-    // =====================================================
-    // STEP 2: CREATE FAILING WITHDRAWAL
-    // =====================================================
-
-    console.log("\n📍 Step 2: Creating withdrawal that will fail...");
-
-    const recipientAddress = "0x0000000000000000000000000000000000000001";
-    const recipientAddressBytes = Array.from(
-      Buffer.from(recipientAddress.slice(2), "hex")
-    );
-
-    const withdrawAmount = currentBalance.amount;
-
-    // Derive the MPC signer address first
     const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("global_vault_authority")],
       program.programId
@@ -966,131 +953,139 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
-    const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
-      globalVaultAuthority.toString(),
-      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
-      CONFIG.SOLANA_CAIP2_ID,
-      CONFIG.KEY_VERSION
-    );
-    const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
-
-    // Get current nonce for MPC signer
-    const ethprovider = ethUtils.getProvider();
-    const currentNonce = await ethprovider.getTransactionCount(signerAddress);
-
-    // Use an old nonce to make transaction fail
-    const oldNonce = currentNonce > 0 ? currentNonce - 1 : 0;
-    console.log(
-      "  📊 Using old nonce:",
-      oldNonce,
-      "(current:",
-      currentNonce + ")"
-    );
-
-    // Built with the old nonce and a fixed gas limit, since estimating gas
-    // for a transfer the signer cannot make would fail.
-    const {
-      requestId,
-      requestIdBytes,
-      pendingPda: pendingWithdrawal,
-      built: { callData, txParams },
-    } = await findFreeRequest(
-      provider.connection,
-      program.programId,
-      "pending_erc20_withdrawal",
-      globalVaultAuthority,
-      "root",
-      (gasLimit = BigInt(100000)) =>
-        ethUtils.buildTransferTransaction(
-          signerAddress,
-          recipientAddress,
-          BigInt(withdrawAmount.toString()),
-          { nonce: oldNonce, gasLimit }
-        )
-    );
-    console.log(" requestId:", requestId);
-
-    // =====================================================
-    // STEP 3: INITIATE WITHDRAWAL
-    // =====================================================
-
-    console.log("\n📍 Step 3: Initiating withdrawal...");
-
-    const balanceBeforeWithdraw = currentBalance.amount;
-
-    const withdrawTx = await program.methods
-      .withdrawErc20(
-        requestIdBytes,
-        erc20AddressBytes,
-        withdrawAmount,
-        recipientAddressBytes,
-        txParams
-      )
-      .accountsStrict({
-        authority: provider.wallet.publicKey,
-        requester: globalVaultAuthority,
-        pendingWithdrawal,
-        userBalance,
-        feePayer: provider.wallet.publicKey,
-        chainSignaturesState,
-        eventAuthority,
-        chainSignaturesProgram,
-        systemProgram: anchor.web3.SystemProgram.programId,
-        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        config: vaultConfigPda,
-      })
-      .rpc();
-
-    console.log("  ✅ Withdrawal transaction:", withdrawTx);
-
-    // Check balance was decremented optimistically
-    const balanceAfterWithdraw = await program.account.userErc20Balance.fetch(
-      userBalance
-    );
-    console.log(
-      "  💰 Balance after withdrawal:",
-      balanceAfterWithdraw.amount.toString()
-    );
-    expect(balanceAfterWithdraw.amount.toString()).to.equal("0");
-
-    // =====================================================
-    // STEP 4: SETUP EVENT LISTENERS
-    // =====================================================
-
-    console.log("\n📍 Step 4: Setting up event listeners...");
-
     const signer = new anchor.web3.PublicKey(
       CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
 
-    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
-    const signaturePromise = chainSignatureContract.waitForEvent({
-      eventName: "signatureRespondedEvent",
-      requestId,
-      signer,
-      afterSignature: withdrawTx,
-      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
-    });
-    const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
-      eventName: "respondBidirectionalEvent",
-      requestId,
-      signer,
-      afterSignature: withdrawTx,
-      timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
-      backfillIntervalMs: 15_000,
-      healthCheckIntervalMs: 15_000,
-    });
-
     // =====================================================
-    // STEP 5: WAIT FOR SIGNATURE
+    // STEP 2: REQUEST TWO WITHDRAWALS ON ONE NONCE
     // =====================================================
 
-    console.log("\n📍 Step 5: Waiting for signature...");
+    console.log("\n📍 Step 2: Requesting two withdrawals on one nonce...");
 
-    const rsvSignature = await signaturePromise;
+    // Both transactions spend the same nonce, so only one can ever be mined.
+    // The MPC answers the other Unviable (Failed on Solana for now) once the
+    // first is final, and the vault refunds it. The recipient differs so the
+    // two requests get different ids.
+    const nonce = await ethUtils
+      .getProvider()
+      .getTransactionCount(signerAddress);
+    const withdrawAmount = currentBalance.amount.div(new BN(2));
+    console.log(
+      "  📊 Nonce:",
+      nonce,
+      "amount each:",
+      withdrawAmount.toString()
+    );
+
+    const requestWithdrawal = async (recipientAddress: string) => {
+      const recipientAddressBytes = Array.from(
+        Buffer.from(recipientAddress.slice(2), "hex")
+      );
+      const {
+        requestId,
+        requestIdBytes,
+        pendingPda: pendingWithdrawal,
+        built: { callData, txParams },
+      } = await findFreeRequest(
+        provider.connection,
+        program.programId,
+        "pending_erc20_withdrawal",
+        globalVaultAuthority,
+        "root",
+        (gasLimit) =>
+          ethUtils.buildTransferTransaction(
+            signerAddress,
+            recipientAddress,
+            BigInt(withdrawAmount.toString()),
+            { nonce, gasLimit }
+          )
+      );
+      console.log(" requestId:", requestId);
+
+      const withdrawTx = await program.methods
+        .withdrawErc20(
+          requestIdBytes,
+          erc20AddressBytes,
+          withdrawAmount,
+          recipientAddressBytes,
+          txParams
+        )
+        .accountsStrict({
+          authority: provider.wallet.publicKey,
+          requester: globalVaultAuthority,
+          pendingWithdrawal,
+          userBalance,
+          feePayer: provider.wallet.publicKey,
+          chainSignaturesState,
+          eventAuthority,
+          chainSignaturesProgram,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          config: vaultConfigPda,
+        })
+        .rpc();
+      console.log("  ✅ Withdrawal transaction:", withdrawTx);
+
+      // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+      const signaturePromise = chainSignatureContract.waitForEvent({
+        eventName: "signatureRespondedEvent",
+        requestId,
+        signer,
+        afterSignature: withdrawTx,
+        timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
+        backfillIntervalMs: 15_000,
+        healthCheckIntervalMs: 15_000,
+      });
+      const respondPromise = chainSignatureContract.waitForEvent({
+        eventName: "respondBidirectionalEvent",
+        requestId,
+        signer,
+        afterSignature: withdrawTx,
+        timeoutMs: CONFIG.WAIT_FOR_EVENT_TIMEOUT_MS,
+        backfillIntervalMs: 15_000,
+        healthCheckIntervalMs: 15_000,
+      });
+
+      return {
+        requestIdBytes,
+        callData,
+        txParams,
+        signaturePromise,
+        respondPromise,
+      };
+    };
+
+    const landing = await requestWithdrawal(
+      CONFIG.WITHDRAWAL_RECIPIENT_ADDRESS
+    );
+    const displaced = await requestWithdrawal(
+      "0x0000000000000000000000000000000000000001"
+    );
+
+    const balanceAfterWithdraw = await program.account.userErc20Balance.fetch(
+      userBalance
+    );
+    console.log(
+      "  💰 Balance after both withdrawals:",
+      balanceAfterWithdraw.amount.toString()
+    );
+    expect(balanceAfterWithdraw.amount.toString()).to.equal(
+      currentBalance.amount.sub(withdrawAmount).sub(withdrawAmount).toString()
+    );
+
+    // =====================================================
+    // STEP 3: WAIT FOR BOTH SIGNATURES
+    // =====================================================
+
+    console.log("\n📍 Step 3: Waiting for both signatures...");
+
+    // The displaced request has to be signed before the other lands: a node
+    // matches a used nonce only against requests whose signature it has seen.
+    const [rsvSignature] = await Promise.all([
+      landing.signaturePromise,
+      displaced.signaturePromise,
+    ]);
     const signature = {
       r: "0x" + rsvSignature.r,
       s: "0x" + rsvSignature.s,
@@ -1098,77 +1093,88 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     };
 
     // =====================================================
-    // STEP 6: TRY TO SUBMIT (WILL FAIL)
+    // STEP 4: SUBMIT ONE OF THEM TO ETHEREUM
     // =====================================================
 
-    console.log("\n📍 Step 6: Attempting to submit transaction...");
+    console.log("\n📍 Step 4: Submitting the first withdrawal to Ethereum...");
 
     const signedTx = ethers.Transaction.from({
       type: 2,
       chainId: CONFIG.SEPOLIA_CHAIN_ID,
-      nonce: txParams.nonce.toNumber(),
-      maxPriorityFeePerGas: BigInt(txParams.maxPriorityFeePerGas.toString()),
-      maxFeePerGas: BigInt(txParams.maxFeePerGas.toString()),
-      gasLimit: BigInt(txParams.gasLimit.toString()),
+      nonce,
+      maxPriorityFeePerGas: BigInt(
+        landing.txParams.maxPriorityFeePerGas.toString()
+      ),
+      maxFeePerGas: BigInt(landing.txParams.maxFeePerGas.toString()),
+      gasLimit: BigInt(landing.txParams.gasLimit.toString()),
       to: CONFIG.USDC_ADDRESS_SEPOLIA,
       value: BigInt(0),
-      data: callData,
+      data: landing.callData,
       signature,
     });
 
-    try {
-      const txHash = await ethUtils.submitTransaction(signedTx);
-      await ethUtils.waitForConfirmation(txHash);
-      console.log("  ⚠️ Transaction unexpectedly succeeded!");
-    } catch (error: any) {
-      console.log("  ✅ Transaction failed as expected");
+    if (signedTx.from?.toLowerCase() !== signerAddress.toLowerCase()) {
+      throw new Error(
+        `Transaction from address mismatch! Expected ${signerAddress}, got ${signedTx.from}`
+      );
+    }
+
+    const txHash = await ethUtils.submitTransaction(signedTx);
+    await ethUtils.waitForConfirmation(txHash);
+    console.log("  ✅ Transaction confirmed:", txHash);
+
+    // =====================================================
+    // STEP 5: COMPLETE BOTH WITHDRAWALS
+    // =====================================================
+
+    console.log("\n📍 Step 5: Waiting for both responses...");
+
+    const [landingEvent, displacedEvent] = await Promise.all([
+      landing.respondPromise,
+      displaced.respondPromise,
+    ]);
+    console.log(
+      "  📨 Displaced output:",
+      ethers.hexlify(Buffer.from(displacedEvent.serializedOutput))
+    );
+
+    for (const [request, event] of [
+      [landing, landingEvent],
+      [displaced, displacedEvent],
+    ] as const) {
+      await program.methods
+        .completeWithdrawErc20(
+          request.requestIdBytes,
+          Buffer.from(event.serializedOutput),
+          event.signature
+        )
+        .accounts({
+          userBalance,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+        ])
+        .rpc();
     }
 
     // =====================================================
-    // STEP 7: WAIT FOR ERROR RESPONSE
+    // STEP 6: VERIFY ONE PAID OUT AND ONE REFUNDED
     // =====================================================
 
-    console.log("\n📍 Step 7: Waiting for error response...");
+    console.log("\n📍 Step 6: Verifying balance...");
 
-    const respondBidirectionalEvent = await respondBidirectionalPromise;
-
-    // =====================================================
-    // STEP 8: COMPLETE WITHDRAWAL (REFUND)
-    // =====================================================
-
-    console.log("\n📍 Step 8: Completing withdrawal (expecting refund)...");
-
-    await program.methods
-      .completeWithdrawErc20(
-        requestIdBytes,
-        Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature
-      )
-      .accounts({
-        userBalance,
-      })
-      .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
-      ])
-      .rpc();
-
-    // =====================================================
-    // STEP 9: VERIFY REFUND
-    // =====================================================
-
-    console.log("\n📍 Step 9: Verifying balance was refunded...");
+    // The mined transfer returned true; the displaced one was refunded.
+    expect(Array.from(landingEvent.serializedOutput)).to.deep.equal([1]);
 
     const finalBalance = await program.account.userErc20Balance.fetch(
       userBalance
     );
-
+    console.log("  💰 Final balance:", finalBalance.amount.toString());
     expect(finalBalance.amount.toString()).to.equal(
-      balanceBeforeWithdraw.toString()
+      currentBalance.amount.sub(withdrawAmount).toString()
     );
 
-    console.log("  ✅ Balance refunded:", finalBalance.amount.toString());
-
-    console.log("\n🎉 Failed withdrawal handled correctly!");
+    console.log("\n🎉 Displaced withdrawal refunded!");
   });
 });
 
