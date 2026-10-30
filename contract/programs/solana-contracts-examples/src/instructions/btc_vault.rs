@@ -12,8 +12,6 @@ use signet_rs::{TransactionBuilder, TxBuilder, BITCOIN};
 use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
 use crate::state::{BtcDepositParams, BtcInput, BtcOutput, BtcWithdrawParams};
 
-const HARDCODED_ROOT_PATH: &str = "root";
-
 pub fn deposit_btc(
     ctx: Context<DepositBtc>,
     request_id: [u8; 32],
@@ -22,7 +20,7 @@ pub fn deposit_btc(
     outputs: Vec<BtcOutput>,
     tx_params: BtcDepositParams,
 ) -> Result<()> {
-    let path = requester.to_string();
+    let path = crate::constants::deposit_path(&requester);
     // SECURITY: caller-provided outputs can redirect funds; the vault output should be hardcoded
     // (e.g., to a program-derived script) so deposits always land in the contract-controlled vault.
     let BtcDepositParams {
@@ -238,7 +236,7 @@ pub fn withdraw_btc(
     tx_params: BtcWithdrawParams,
 ) -> Result<()> {
     let authority = ctx.accounts.authority.key();
-    let path = HARDCODED_ROOT_PATH.to_string();
+    let path = crate::constants::ROOT_PATH.to_string();
     let BtcWithdrawParams {
         lock_time,
         caip2_id,
@@ -432,7 +430,7 @@ pub fn complete_withdraw_btc(
     let pending = &ctx.accounts.pending_withdrawal;
     let config = &ctx.accounts.config;
 
-    // Derive the expected address on-chain from MPC root public key + "root" path
+    // Derive the expected response signer on-chain from the MPC root public key
     // For withdrawals, the signer is always the global vault address
     let expected_address_bytes = crate::crypto::derive_withdrawal_expected_address(
         &config.mpc_root_public_key,

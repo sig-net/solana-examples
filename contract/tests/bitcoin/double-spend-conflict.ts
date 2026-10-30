@@ -134,9 +134,9 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       throw new Error("Input value too small for conflict spend");
     }
 
-    // Derive the global vault signing key (path = "root")
+    // Derive the global vault signing key
     const derivedKeyHex = await CryptoUtils.deriveSigningKey(
-      CONFIG.BITCOIN_WITHDRAW_PATH, // "root"
+      CONFIG.WITHDRAW_PATH,
       withdrawalPlan.globalVault.pda.toString(),
       CONFIG.MPC_ROOT_PRIVATE_KEY
     );

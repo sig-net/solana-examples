@@ -3,6 +3,7 @@ import { utils as signetUtils } from '@sig-net/signet.js';
 import { publicKeyToAddress } from 'viem/accounts';
 
 import { getClientEnv } from '@/lib/config/env.config';
+import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 import { IDL } from '@/lib/program/idl-sol-dex';
 
 const env = getClientEnv();
@@ -151,7 +152,7 @@ export const GLOBAL_VAULT_AUTHORITY_PDA = PublicKey.findProgramAddressSync(
 export const VAULT_ETHEREUM_ADDRESS = (() => {
   try {
     const derivedPublicKey = deriveChildPublicKey(
-      'root',
+      SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,
       GLOBAL_VAULT_AUTHORITY_PDA.toString(),
       CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );

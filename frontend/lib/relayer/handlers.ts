@@ -12,6 +12,7 @@ import {
   ensureGasForErc20Transfer,
   ensureGasForTransaction,
 } from '@/lib/evm/gas-topup';
+import { depositPath } from '@/lib/constants/service.config';
 import { initializeRelayerSetup } from '@/lib/utils/relayer-setup';
 import { evmParamsToProgram } from '@/lib/program/utils';
 import { generateDepositRequestId } from '@/lib/utils/request-id';
@@ -137,7 +138,7 @@ async function executeDeposit(args: {
       });
     }
 
-    const path = userAddress;
+    const path = depositPath(userAddress);
     const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
 
     const txRequest: EvmTransactionRequest = await buildErc20TransferTx({

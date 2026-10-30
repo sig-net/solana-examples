@@ -8,7 +8,7 @@ const { getRequestIdBidirectional } = contracts.solana;
 
 /**
  * Generate a request ID for deposit operations.
- * Uses the user's address as the derivation path.
+ * Uses the user's deposit path.
  */
 export function generateDepositRequestId(
   vaultAuthority: PublicKey,

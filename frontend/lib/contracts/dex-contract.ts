@@ -10,6 +10,7 @@ import {
 import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { toBytes } from 'viem';
 
+import { depositPath } from '@/lib/constants/service.config';
 import { IDL, type SolanaDexContract } from '@/lib/program/idl-sol-dex';
 import type { EvmTransactionProgramParams } from '@/lib/types/shared.types';
 import {
@@ -306,7 +307,7 @@ export class DexContract {
 
   deriveDepositAddress(publicKey: PublicKey): string {
     const [vaultAuthority] = deriveVaultAuthorityPda(publicKey);
-    const path = publicKey.toString();
+    const path = depositPath(publicKey.toString());
     return deriveEthereumAddress(
       path,
       vaultAuthority.toString(),
