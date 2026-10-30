@@ -12,8 +12,6 @@ use signet_rs::{TransactionBuilder, TxBuilder, EVM};
 use crate::contexts::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 use crate::state::{EvmTransactionParams, IERC20};
 
-const HARDCODED_ROOT_PATH: &str = "root";
-
 pub fn deposit_erc20(
     ctx: Context<DepositErc20>,
     request_id: [u8; 32],
@@ -23,7 +21,7 @@ pub fn deposit_erc20(
     amount: u128,
     tx_params: EvmTransactionParams,
 ) -> Result<()> {
-    let path = requester.to_string();
+    let path = crate::constants::deposit_path(&requester);
     // SECURITY: recipient_address should eventually be derived on-chain instead of supplied.
     // Create ERC20 transfer call
     let recipient = Address::from_slice(&recipient_address);
@@ -187,8 +185,8 @@ pub fn withdraw_erc20(
 ) -> Result<()> {
     let authority = ctx.accounts.authority.key();
 
-    // Use the hardcoded root path for withdrawals
-    let path = HARDCODED_ROOT_PATH.to_string();
+    // Withdrawals sign under the treasury's root path
+    let path = crate::constants::ROOT_PATH.to_string();
 
     // Check user has sufficient balance
     let balance = &mut ctx.accounts.user_balance;
@@ -326,7 +324,7 @@ pub fn complete_withdraw_erc20(
     let pending = &ctx.accounts.pending_withdrawal;
     let config = &ctx.accounts.config;
 
-    // Derive the expected address on-chain from MPC root public key + "root" path
+    // Derive the expected response signer on-chain from the MPC root public key
     // For withdrawals, the signer is always the global vault address
     let expected_address_bytes =
         crate::crypto::derive_withdrawal_expected_address(&config.mpc_root_public_key)?;

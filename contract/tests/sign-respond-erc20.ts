@@ -9,7 +9,12 @@ import { contracts, utils as signetUtils } from "@sig-net/signet.js";
 import { ChainSignatureServer } from "fakenet-signer";
 
 const { getRequestIdBidirectional } = contracts.solana;
-import { CONFIG, SERVER_CONFIG, TEST_TIMEOUT_MS } from "../utils/envConfig";
+import {
+  CONFIG,
+  SERVER_CONFIG,
+  TEST_TIMEOUT_MS,
+  depositPath,
+} from "../utils/envConfig";
 
 const COMPUTE_UNITS = 1_400_000;
 
@@ -359,7 +364,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId
     );
 
-    const path = provider.wallet.publicKey.toString();
+    const path = depositPath(provider.wallet.publicKey);
     const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
@@ -372,7 +377,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "root",
+      CONFIG.WITHDRAW_PATH,
       CONFIG.SOLANA_CAIP2_ID,
       CONFIG.KEY_VERSION
     );
@@ -653,7 +658,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "root",
+      CONFIG.WITHDRAW_PATH,
       CONFIG.SOLANA_CAIP2_ID,
       CONFIG.KEY_VERSION
     );
@@ -689,7 +694,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const withdrawAmount = currentBalance.amount.div(new BN(2));
     const withdrawAmountBigInt = BigInt(withdrawAmount.toString());
 
-    // The transaction is FROM the MPC signer, under the hardcoded root path.
+    // The transaction is FROM the MPC signer, under the withdrawal path.
     const {
       requestId,
       requestIdBytes,
@@ -700,7 +705,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId,
       "pending_erc20_withdrawal",
       globalVaultAuthority,
-      "root",
+      CONFIG.WITHDRAW_PATH,
       (gasLimit) =>
         ethUtils.buildTransferTransaction(
           signerAddress,
@@ -947,7 +952,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "root",
+      CONFIG.WITHDRAW_PATH,
       CONFIG.SOLANA_CAIP2_ID,
       CONFIG.KEY_VERSION
     );
@@ -992,7 +997,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         program.programId,
         "pending_erc20_withdrawal",
         globalVaultAuthority,
-        "root",
+        CONFIG.WITHDRAW_PATH,
         (gasLimit) =>
           ethUtils.buildTransferTransaction(
             signerAddress,

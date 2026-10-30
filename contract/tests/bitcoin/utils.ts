@@ -18,7 +18,7 @@ import {
 } from "fakenet-signer";
 
 const { getRequestIdBidirectional } = contracts.solana;
-import { CONFIG, SERVER_CONFIG } from "../../utils/envConfig";
+import { CONFIG, SERVER_CONFIG, depositPath } from "../../utils/envConfig";
 import { randomBytes } from "crypto";
 
 export interface UTXO {
@@ -493,7 +493,7 @@ export const composeWithdrawalPlan = (params: {
     {
       sender: params.globalVault.pda.toString(),
       caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-      path: CONFIG.BITCOIN_WITHDRAW_PATH,
+      path: CONFIG.WITHDRAW_PATH,
     }
   );
 
@@ -579,7 +579,7 @@ export function computeSignatureRequestIds(
   const sender = isDeposit
     ? plan.vaultAuthority.pda.toString()
     : plan.globalVault.pda.toString();
-  const path = isDeposit ? plan.path : CONFIG.BITCOIN_WITHDRAW_PATH;
+  const path = isDeposit ? plan.path : CONFIG.WITHDRAW_PATH;
   const inputCount = plan.btcInputs.length;
 
   return computePerInputRequestIds({
@@ -1385,7 +1385,7 @@ const deriveGlobalVaultContext = (): GlobalVaultContext => {
     program.programId
   );
   return {
-    globalVault: deriveBtcTarget(globalVaultPda, CONFIG.BITCOIN_WITHDRAW_PATH),
+    globalVault: deriveBtcTarget(globalVaultPda, CONFIG.WITHDRAW_PATH),
   };
 };
 
@@ -1397,7 +1397,7 @@ const deriveVaultContext = (
   pathOverride?: string
 ): VaultContext => {
   const { program } = requireContext();
-  const path = pathOverride ?? requester.toString();
+  const path = pathOverride ?? depositPath(requester);
   const [vaultAuthorityPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("vault_authority"), requester.toBuffer()],
     program.programId

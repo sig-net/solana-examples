@@ -318,8 +318,13 @@ export const CONFIG = {
     ENV_CONFIG.BITCOIN_NETWORK === "testnet"
       ? "bip122:000000000933ea01ad0ee984209779ba"
       : "bip122:0f9188f13cb7b2c71f2a335e3a4fc328",
-  BITCOIN_WITHDRAW_PATH: "root",
+  // SigNet reserves `bidirectional/` for bidirectional request paths on Solana.
+  WITHDRAW_PATH: "bidirectional/root",
 } as const;
+
+/** Path of a user's deposit key; the program derives the same one. */
+export const depositPath = (requester: { toString(): string }): string =>
+  `bidirectional/${requester.toString()}`;
 
 /**
  * Per-test mocha timeout: the event-wait budget plus the fixed budget for the

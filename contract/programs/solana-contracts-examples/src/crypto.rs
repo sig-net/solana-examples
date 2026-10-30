@@ -138,7 +138,7 @@ fn point_add(p1: &Affine, p2: &Affine) -> Affine {
 /// # Arguments
 /// * `mpc_root_public_key` - The 64-byte uncompressed secp256k1 public key (without 0x04 prefix)
 /// * `predecessor_id` - The vault authority PDA as a string
-/// * `path` - The derivation path (user's pubkey for deposits, "root" for withdrawals)
+/// * `path` - The derivation path
 ///
 /// # Returns
 /// The 20-byte Ethereum address

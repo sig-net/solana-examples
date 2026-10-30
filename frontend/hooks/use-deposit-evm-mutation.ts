@@ -9,6 +9,7 @@ import {
   deriveEthereumAddress,
   deriveVaultAuthorityPda,
 } from '@/lib/constants/addresses';
+import { depositPath } from '@/lib/constants/service.config';
 import { queryKeys, invalidateBalanceQueries } from '@/lib/query-client';
 import { notifyDeposit } from '@/lib/services/relayer-service';
 import type { StatusCallback } from '@/lib/types/shared.types';
@@ -44,7 +45,7 @@ export function useDepositEvmMutation() {
       if (!publicKey) throw new Error('No public key available');
 
       const [vaultAuthority] = deriveVaultAuthorityPda(publicKey);
-      const path = publicKey.toString();
+      const path = depositPath(publicKey.toString());
       const derivedAddress = deriveEthereumAddress(
         path,
         vaultAuthority.toString(),

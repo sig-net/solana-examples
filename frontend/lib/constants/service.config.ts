@@ -15,8 +15,8 @@ export const SERVICE_CONFIG = {
     SIGNATURE_ALGORITHM: 'ECDSA',
     /** Deprecated `dest` field of a request, kept blank; the target chain is `ETHEREUM.CAIP2_ID` */
     DEST: '',
-    /** Root path for withdrawal operations */
-    WITHDRAWAL_ROOT_PATH: 'root',
+    /** Root path for withdrawal operations, in SigNet's reserved `bidirectional/` namespace */
+    WITHDRAWAL_ROOT_PATH: 'bidirectional/root',
   },
   BALANCE: {
     /** Minimum balance threshold (in token units after decimals) */
@@ -27,3 +27,7 @@ export const SERVICE_CONFIG = {
     DEFAULT_KEY_VERSION: 1,
   },
 } as const;
+
+/** Path of a user's deposit key, in SigNet's reserved `bidirectional/` namespace */
+export const depositPath = (userAddress: string): string =>
+  `bidirectional/${userAddress}`;
